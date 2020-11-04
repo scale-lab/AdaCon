@@ -17,6 +17,7 @@ import torch
 import torch.nn as nn
 import torchvision
 from tqdm import tqdm
+from prettytable import PrettyTable
 
 from . import torch_utils  # , google_utils
 
@@ -1078,3 +1079,28 @@ def plot_results(start=0, stop=0, bucket='', id=()):  # from utils.utils import 
 
     ax[1].legend()
     fig.savefig('results.png', dpi=200)
+
+def get_class_to_cluster_map(clusters_list):
+    class_to_cluster_list = []
+    ## create the class-cluster map to be used for labels in split training
+    for cluster in clusters_list:
+        class_to_cluster = {}
+        for i, element in enumerate(cluster):
+            class_to_cluster[element] = i
+
+        class_to_cluster_list.append(class_to_cluster)
+
+    return class_to_cluster_list
+
+
+def count_parameters(model):
+    table = PrettyTable(["Modules", "Parameters"])
+    total_params = 0
+    for name, parameter in model.named_parameters():
+        if not parameter.requires_grad: continue
+        param = parameter.numel()
+        table.add_row([name, param])
+        total_params+=param
+    print(table)
+    print(f"Total Trainable Params: {total_params}")
+    return total_params

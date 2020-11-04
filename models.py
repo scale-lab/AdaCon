@@ -1,6 +1,7 @@
 from utils.google_utils import *
 from utils.layers import *
 from utils.parse_config import *
+import utils.extras as extras
 
 ONNX_EXPORT = False
 
@@ -9,15 +10,15 @@ def create_modules(module_defs, img_size, cfg):
     # Constructs module list of layer blocks from module configuration in module_defs
 
     img_size = [img_size] * 2 if isinstance(img_size, int) else img_size  # expand if necessary
+    start_filt = int(module_defs[0]['channels'])
     _ = module_defs.pop(0)  # cfg training hyperparams (unused)
-    output_filters = [3]  # input channels
+    output_filters = [start_filt]  # input channels
     module_list = nn.ModuleList()
     routs = []  # list of layers which rout to deeper layers
     yolo_index = -1
 
     for i, mdef in enumerate(module_defs):
         modules = nn.Sequential()
-
         if mdef['type'] == 'convolutional':
             bn = mdef['batch_normalize']
             filters = mdef['filters']
@@ -77,7 +78,11 @@ def create_modules(module_defs, img_size, cfg):
 
         elif mdef['type'] == 'route':  # nn.Sequential() placeholder for 'route' layer
             layers = mdef['layers']
-            filters = sum([output_filters[l + 1 if l > 0 else l] for l in layers])
+            if "filters" in mdef:
+                filters = sum([output_filters[1:][layers[i]] for i in range(len(layers)-1)])
+                filters = filters + int(mdef["filters"])
+            else:
+                filters = sum([output_filters[l + 1 if l > 0 else l] for l in layers])
             routs.extend([i + l if l < 0 else l for l in layers])
             modules = FeatureConcat(layers=layers)
 
@@ -127,10 +132,10 @@ def create_modules(module_defs, img_size, cfg):
         module_list.append(modules)
         output_filters.append(filters)
 
-    routs_binary = [False] * (i + 1)
-    for i in routs:
-        routs_binary[i] = True
-    return module_list, routs_binary
+    #routs_binary = [False] * (i + 1)
+    #for i in routs:
+        #routs_binary[i] = True
+    return module_list
 
 
 class YOLOLayer(nn.Module):
@@ -229,7 +234,7 @@ class Darknet(nn.Module):
         super(Darknet, self).__init__()
 
         self.module_defs = parse_model_cfg(cfg)
-        self.module_list, self.routs = create_modules(self.module_defs, img_size, cfg)
+        self.module_list = create_modules(self.module_defs, img_size, cfg)
         self.yolo_layers = get_yolo_layers(self)
         # torch_utils.initialize_weights(self)
 
@@ -238,10 +243,10 @@ class Darknet(nn.Module):
         self.seen = np.array([0], dtype=np.int64)  # (int64) number of images seen during training
         self.info(verbose) if not ONNX_EXPORT else None  # print model description
 
-    def forward(self, x, augment=False, verbose=False):
+    def forward(self, x, augment=False, verbose=False, out=None):
 
         if not augment:
-            return self.forward_once(x)
+            return self.forward_once(x, out=out)
         else:  # Augment images (inference and test only) https://github.com/ultralytics/yolov3/issues/931
             img_size = x.shape[-2:]  # height, width
             s = [0.83, 0.67]  # scales
@@ -251,7 +256,7 @@ class Darknet(nn.Module):
                                     torch_utils.scale_img(x, s[1], same_shape=False),  # scale
                                     )):
                 # cv2.imwrite('img%g.jpg' % i, 255 * xi[0].numpy().transpose((1, 2, 0))[:, :, ::-1])
-                y.append(self.forward_once(xi)[0])
+                y.append(self.forward_once(xi, out=out)[0])
 
             y[1][..., :4] /= s[0]  # scale
             y[1][..., 0] = img_size[1] - y[1][..., 0]  # flip lr
@@ -268,9 +273,11 @@ class Darknet(nn.Module):
             y = torch.cat(y, 1)
             return y, None
 
-    def forward_once(self, x, augment=False, verbose=False):
+    def forward_once(self, x, augment=False, verbose=False, out=None):
         img_size = x.shape[-2:]  # height, width
-        yolo_out, out = [], []
+        yolo_out = []
+        if out == None:
+            out = []
         if verbose:
             print('0', x.shape)
             str = ''
@@ -296,12 +303,10 @@ class Darknet(nn.Module):
                 yolo_out.append(module(x, out))
             else:  # run module directly, i.e. mtype = 'convolutional', 'upsample', 'maxpool', 'batchnorm2d' etc.
                 x = module(x)
-
-            out.append(x if self.routs[i] else [])
+            out.append(x)
             if verbose:
                 print('%g/%g %s -' % (i, len(self.module_list), name), list(x.shape), str)
                 str = ''
-
         if self.training:  # train
             return yolo_out
         elif ONNX_EXPORT:  # export
@@ -478,3 +483,138 @@ def attempt_download(weights):
         if not (r == 0 and os.path.exists(weights) and os.path.getsize(weights) > 1E6):  # weights exist and > 1MB
             os.system('rm ' + weights)  # remove partial downloads
             raise Exception(msg)
+
+class Backbone(nn.Module):
+    # YOLOv3 object detection model
+
+    def __init__(self, cfg, img_size=(416, 416), verbose=False):
+        super(Backbone, self).__init__()
+
+        self.module_defs = parse_model_cfg(cfg)
+        self.module_list = create_modules(self.module_defs, img_size, cfg)
+        # torch_utils.initialize_weights(self)
+
+        # Darknet Header https://github.com/AlexeyAB/darknet/issues/2914#issuecomment-496675346
+        self.version = np.array([0, 2, 5], dtype=np.int32)  # (int32) version info: major, minor, revision
+        self.seen = np.array([0], dtype=np.int64)  # (int64) number of images seen during training
+        self.layer_outputs = []
+
+    def forward(self, x, augment=False, verbose=False):
+        img_size = x.shape[-2:]  # height, width
+        if verbose:
+            print('0', x.shape)
+            str = ''
+        # # Augment images (inference and test only)
+        # if augment:  # https://github.com/ultralytics/yolov3/issues/931
+        #     nb = x.shape[0]  # batch size
+        #     s = [0.83, 0.67]  # scales
+        #     x = torch.cat((x,
+        #                    torch_utils.scale_img(x.flip(3), s[0]),  # flip-lr and scale
+        #                    torch_utils.scale_img(x, s[1]),  # scale
+        #                    ), 0)
+
+        for i, module in enumerate(self.module_list):
+            name = module.__class__.__name__
+            if name in ['WeightedFeatureFusion', 'FeatureConcat']:  # sum, concat
+                if verbose:
+                    l = [i - 1] + module.layers  # layers
+                    sh = [list(x.shape)] + [list(out[i].shape) for i in module.layers]  # shapes
+                    str = ' >> ' + ' + '.join(['layer %g %s' % x for x in zip(l, sh)])
+                x = module(x, self.layer_outputs)  # WeightedFeatureFusion(), FeatureConcat()
+            else:  # run module directly, i.e. mtype = 'convolutional', 'upsample', 'maxpool', 'batchnorm2d' etc.
+                x = module(x)
+
+            self.layer_outputs.append(x)
+            if verbose:
+                print('%g/%g %s -' % (i, len(self.module_list), name), list(x.shape), str)
+                str = ''
+
+        return x
+
+    def load_darknet_weights(self, weights_path, layer_cutoff_idx=0):
+        """Parses and loads the weights stored in 'weights_path'"""
+
+        # Open the weights file
+        with open(weights_path, "rb") as f:
+            header = np.fromfile(f, dtype=np.int32, count=5)  # First five are header values
+            self.header_info = header  # Needed to write header when saving weights
+            self.seen = header[3]  # number of images seen during training
+            weights = np.fromfile(f, dtype=np.float32)  # The rest are weights
+
+        # Establish cutoff for loading backbone weights
+        cutoff = layer_cutoff_idx
+        if "darknet53.conv.74" in weights_path:
+            cutoff = min(cutoff, 75)
+
+        ptr = 0
+        for i, (module_def, module) in enumerate(zip(self.module_defs, self.module_list)):
+            if i > cutoff:
+                break
+            if module_def["type"] == "convolutional":
+                print("layer", i, "loaded")
+                conv_layer = module[0]
+                if module_def["batch_normalize"]:
+                    # Load BN bias, weights, running mean and running variance
+                    bn_layer = module[1]
+                    num_b = bn_layer.bias.numel()  # Number of biases
+                    # Bias
+                    bn_b = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(bn_layer.bias)
+                    bn_layer.bias.data.copy_(bn_b)
+                    ptr += num_b
+                    # Weight
+                    bn_w = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(bn_layer.weight)
+                    bn_layer.weight.data.copy_(bn_w)
+                    ptr += num_b
+                    # Running Mean
+                    bn_rm = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(bn_layer.running_mean)
+                    bn_layer.running_mean.data.copy_(bn_rm)
+                    ptr += num_b
+                    # Running Var
+                    bn_rv = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(bn_layer.running_var)
+                    bn_layer.running_var.data.copy_(bn_rv)
+                    ptr += num_b
+                else:
+                    # Load conv. bias
+                    num_b = conv_layer.bias.numel()
+                    conv_b = torch.from_numpy(weights[ptr : ptr + num_b]).view_as(conv_layer.bias)
+                    conv_layer.bias.data.copy_(conv_b)
+                    ptr += num_b
+                # Load conv. weights
+                num_w = conv_layer.weight.numel()
+                conv_w = torch.from_numpy(weights[ptr : ptr + num_w]).view_as(conv_layer.weight)
+                conv_layer.weight.data.copy_(conv_w)
+                ptr += num_w
+
+
+class BranchController(nn.Module):
+    def __init__(self, cfg, out_classes, img_size=(416,416)):
+        super(BranchController, self).__init__()
+        self.module_defs = parse_model_config(cfg)
+        _, self.module_list = extras.create_modules(self.module_defs)
+
+        self.nc = out_classes
+        self.seen = 0
+        self.fc1 = nn.Linear(64, 32)
+        self.fc2 = nn.Linear(32, self.nc)
+
+    def forward(self, x, layer_outputs=[]):
+        for i, (module_def, module) in enumerate(zip(self.module_defs, self.module_list)):
+            if module_def["type"] in ["convolutional", "upsample", "maxpool"]:
+                x = module(x)
+            elif module_def["type"] == "route":
+                x = torch.cat([layer_outputs[int(layer_i)] for layer_i in module_def["layers"].split(",")], 1)
+            layer_outputs.append(x)
+
+            layer_outputs.append(x)
+            #print(i, x.shape, "clus")
+        x = x.view(-1, self.num_flat_features(x))
+        x = F.leaky_relu(self.fc1(x),0.1)
+        x = self.fc2(x)
+        return F.softmax(x)
+
+    def num_flat_features(self, x):
+        size = x.size()[1:]  # all dimensions except the batch dimension
+        num_features = 1
+        for s in size:
+            num_features *= s
+        return num_features

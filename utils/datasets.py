@@ -263,16 +263,17 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             path = str(Path(path))  # os-agnostic
             parent = str(Path(path).parent) + os.sep
             if os.path.isfile(path):  # file
+                print("Opening", path)
                 with open(path, 'r') as f:
                     f = f.read().splitlines()
                     f = [x.replace('./', parent) if x.startswith('./') else x for x in f]  # local to global path
             elif os.path.isdir(path):  # folder
                 f = glob.iglob(path + os.sep + '*.*')
             else:
-                raise Exception('%s does not exist' % path)
+                raise Exception(f"%s does not exist" % path)
             self.img_files = [x.replace('/', os.sep) for x in f if os.path.splitext(x)[-1].lower() in img_formats]
         except:
-            raise Exception('Error loading data from %s. See %s' % (path, help_url))
+            raise Exception(f"Error loading data from %s. See %s" % (path, help_url))
 
         n = len(self.img_files)
         assert n > 0, 'No images found in %s. See %s' % (path, help_url)
@@ -333,14 +334,14 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         create_datasubset, extract_bounding_boxes, labels_loaded = False, False, False
         nm, nf, ne, ns, nd = 0, 0, 0, 0, 0  # number missing, found, empty, datasubset, duplicate
         np_labels_path = str(Path(self.label_files[0]).parent) + '.npy'  # saved labels in *.npy file
-        if os.path.isfile(np_labels_path):
-            s = np_labels_path  # print string
-            x = np.load(np_labels_path, allow_pickle=True)
-            if len(x) == n:
-                self.labels = x
-                labels_loaded = True
-        else:
-            s = path.replace('images', 'labels')
+        #if os.path.isfile(np_labels_path):
+        #    s = np_labels_path  # print string
+        #    x = np.load(np_labels_path, allow_pickle=True)
+        #    if len(x) == n:
+        #        self.labels = x
+        #        labels_loaded = True
+        #else:
+        s = path.replace('images', 'labels')
 
         pbar = tqdm(self.label_files)
         for i, file in enumerate(pbar):
@@ -354,7 +355,6 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 except:
                     nm += 1  # print('missing labels for image %s' % self.img_files[i])  # file missing
                     continue
-
             if l.shape[0]:
                 assert l.shape[1] == 5, '> 5 label columns: %s' % file
                 assert (l >= 0).all(), 'negative labels: %s' % file
@@ -402,10 +402,12 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
 
             pbar.desc = 'Caching labels %s (%g found, %g missing, %g empty, %g duplicate, for %g images)' % (
                 s, nf, nm, ne, nd, n)
-        assert nf > 0 or n == 20288, 'No labels found in %s. See %s' % (os.path.dirname(file) + os.sep, help_url)
-        if not labels_loaded and n > 1000:
-            print('Saving labels to %s for faster future loading' % np_labels_path)
-            np.save(np_labels_path, self.labels)  # save for next time
+        print(pbar.desc)
+        #assert nf > 0 or n == 20288, 'No labels found in %s. See %s' % (os.path.dirname(file) + os.sep, help_url)
+        #if not labels_loaded and n > 1000:
+        #    print("np_labels_path", np_labels_path)
+        #    print('Saving labels to %s for faster future loading' % np_labels_path)
+        #    #np.save("data/coco/labels/train2014.npy", self.labels)  # save for next time
 
         # Cache images into memory for faster training (WARNING: large datasets may exceed system RAM)
         if cache_images:  # if training
