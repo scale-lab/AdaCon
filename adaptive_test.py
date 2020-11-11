@@ -68,7 +68,7 @@ def test(cfg,
 
     # Dataloader
     if dataloader is None:
-        dataset = LoadImagesAndLabels(path, imgsz, batch_size, rect=True, single_cls=opt.single_cls, pad=0.5)
+        dataset = LoadImagesAndLabels(path, imgsz, batch_size, rect=False, single_cls=opt.single_cls, pad=0.5)
         batch_size = min(batch_size, len(dataset))
         dataloader = DataLoader(dataset,
                                 batch_size=batch_size,
@@ -226,7 +226,7 @@ def test(cfg,
             from pycocotools.cocoeval import COCOeval
 
             # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
-            cocoGt = COCO(glob.glob('../coco/annotations/instances_val*.json')[0])  # initialize COCO ground truth api
+            cocoGt = COCO(glob.glob('data/coco/annotations/instances_val*.json')[0])  # initialize COCO ground truth api
             cocoDt = cocoGt.loadRes('results.json')  # initialize COCO pred api
 
             cocoEval = COCOeval(cocoGt, cocoDt, 'bbox')
@@ -355,7 +355,7 @@ def test_branches(cfg,
     # Dataloader
     if dataloader is None:
         print("imgsz", imgsz)
-        dataset = LoadImagesAndLabels(path, imgsz, batch_size, rect=True, single_cls=opt.single_cls, pad=0.5)
+        dataset = LoadImagesAndLabels(path, imgsz, batch_size, rect=False, single_cls=opt.single_cls, pad=0.5)
         batch_size = min(batch_size, len(dataset))
         dataloader = DataLoader(dataset,
                                 batch_size=batch_size,
@@ -396,9 +396,9 @@ def test_branches(cfg,
 
             # Select mode
             if branch_controller:
-                dominent_clus = [torch.argmax(branch_controller(backbone_out, []))]
-                #class_out = branch_controller(backbone_out, [])
-                #dominent_clus = torch.where(class_out > 0.2)[1]
+                #dominent_clus = [torch.argmax(branch_controller(backbone_out, []))]
+                class_out = branch_controller(backbone_out, [])
+                dominent_clus = torch.where(class_out > 0.2)[1]
             elif opt.oracle:
                 ts = targets[:, 1].tolist()
                 cluster_cnt = np.zeros(len(clusters))
