@@ -7,7 +7,6 @@ from models import *
 from utils.datasets import *
 from utils.utils import *
 
-from ptflops import get_model_complexity_info
 
 def test(cfg,
          data,
@@ -68,7 +67,7 @@ def test(cfg,
 
     # Dataloader
     if dataloader is None:
-        dataset = LoadImagesAndLabels(path, imgsz, batch_size, rect=False, single_cls=opt.single_cls, pad=0.5)
+        dataset = LoadImagesAndLabels(path, imgsz, batch_size, rect=True, single_cls=opt.single_cls, pad=0.5)
         batch_size = min(batch_size, len(dataset))
         dataloader = DataLoader(dataset,
                                 batch_size=batch_size,
@@ -80,7 +79,6 @@ def test(cfg,
     model.eval()
     backbone.eval()
     backbone.to(device)
-
     # _ = model(torch.zeros((1, 3, imgsz, imgsz), device=device)) if device.type != 'cpu' else None  # run once
     coco91class = coco80_to_coco91_class()
     s = ('%20s' + '%10s' * 6) % ('Class', 'Images', 'Targets', 'P', 'R', 'mAP@0.5', 'F1')
@@ -226,7 +224,7 @@ def test(cfg,
             from pycocotools.cocoeval import COCOeval
 
             # https://github.com/cocodataset/cocoapi/blob/master/PythonAPI/pycocoEvalDemo.ipynb
-            cocoGt = COCO(glob.glob('data/coco/annotations/instances_val*.json')[0])  # initialize COCO ground truth api
+            cocoGt = COCO(glob.glob('../coco/annotations/instances_val*.json')[0])  # initialize COCO ground truth api
             cocoDt = cocoGt.loadRes('results.json')  # initialize COCO pred api
 
             cocoEval = COCOeval(cocoGt, cocoDt, 'bbox')
@@ -266,11 +264,11 @@ def test_branches(cfg,
          class_to_cluster_list=None,
          cluster_idx=0,
          backbone=None):
+    # Initialize/load model and set device
 
-    # Load clusters path and extract the common classes
     clusters = parse_clusters_config(opt.clusters)
     common_classes = []
-
+    # Get common classes
     for c in clusters[0]:
         add = True
         for others in clusters:
@@ -287,54 +285,21 @@ def test_branches(cfg,
     for f in glob.glob('test_batch*.jpg'):
         os.remove(f)
 
+
     # Load Backbone 
     backbone = Backbone(opt.backbone_cfg).to(device)
     backbone.load_darknet_weights(opt.backbone_weights, 100)
     count_parameters(backbone)
 
-    # Load Branch 0
-    # Initialize model
-    branch0 = Darknet(opt.branch0_cfg, imgsz)
-    # Load weights
-    if opt.branch0_weights.endswith('.pt'):  # pytorch format
-        branch0.load_state_dict(torch.load(opt.branch0_weights, map_location=device)['model'])
-
-    #branch0.fuse()
-    branch0.to(device)
-    count_parameters(branch0)
-
-
-    # Load Branch 1
-    # Initialize model
-    branch1 = Darknet(opt.branch1_cfg, imgsz)
-    # Load weights
-    if opt.branch1_weights.endswith('.pt'):  # pytorch format
-        branch1.load_state_dict(torch.load(opt.branch1_weights, map_location=device)['model'])
-
-    #branch1.fuse()
-    branch1.to(device)
-    count_parameters(branch1)
-
-    # Load Branch 2
-    # Initialize model
-    branch2 = Darknet(opt.branch2_cfg, imgsz)
-    # Load weights
-    if opt.branch2_weights.endswith('.pt'):  # pytorch format
-        branch2.load_state_dict(torch.load(opt.branch2_weights, map_location=device)['model'])
-    #branch2.fuse()
-    branch2.to(device)
-    count_parameters(branch2)
-
-    # Load Branch 3
-    # Initialize model
-    branch3 = Darknet(opt.branch3_cfg, imgsz)
-    # Load weights
-    if opt.branch3_weights.endswith('.pt'):  # pytorch format
-        branch3.load_state_dict(torch.load(opt.branch3_weights, map_location=device)['model'])
-
-    #branch3.fuse()
-    branch3.to(device)
-    count_parameters(branch3)
+    branches = []
+    for i, cfg in enumerate(opt.branches_cfgs):
+        branch = Darknet(cfg, imgsz)
+        if opt.branches_weights:  # pytorch format
+            branch.load_state_dict(torch.load(opt.branches_weights[i], map_location=device)['model'])
+        branch.to(device)
+        count_parameters(branch)
+        branch.eval()
+        branches.append(branch)
 
     branch_controller = None
     if opt.branch_controller_cfg:
@@ -354,7 +319,6 @@ def test_branches(cfg,
 
     # Dataloader
     if dataloader is None:
-        print("imgsz", imgsz)
         dataset = LoadImagesAndLabels(path, imgsz, batch_size, rect=False, single_cls=opt.single_cls, pad=0.5)
         batch_size = min(batch_size, len(dataset))
         dataloader = DataLoader(dataset,
@@ -365,16 +329,6 @@ def test_branches(cfg,
 
     seen = 0
     backbone.eval()
-    branch0.eval()
-    branch1.eval()
-    branch2.eval()
-    branch3.eval()
-
-    branches = []
-    branches.append(branch0)
-    branches.append(branch1)
-    branches.append(branch2)
-    branches.append(branch3)
 
     # _ = model(torch.zeros((1, 3, imgsz, imgsz), device=device)) if device.type != 'cpu' else None  # run once
     coco91class = coco80_to_coco91_class()
@@ -396,9 +350,11 @@ def test_branches(cfg,
 
             # Select mode
             if branch_controller:
-                #dominent_clus = [torch.argmax(branch_controller(backbone_out, []))]
-                class_out = branch_controller(backbone_out, [])
-                dominent_clus = torch.where(class_out > 0.2)[1]
+                if opt.single:
+                    dominent_clus = [torch.argmax(branch_controller(backbone_out, []))]
+                elif opt.multi:
+                    class_out = branch_controller(backbone_out, [])
+                    dominent_clus = torch.where(class_out > opt.bc_thres)[1]
             elif opt.oracle:
                 ts = targets[:, 1].tolist()
                 cluster_cnt = np.zeros(len(clusters))
@@ -408,14 +364,13 @@ def test_branches(cfg,
                             cluster_cnt[i] += 1
 
                 dominent_clus = [np.argmax(cluster_cnt)]
-                #dominent_clus = [idx for idx, val in enumerate(cluster_cnt) if val != 0]
+                dominent_clus = [idx for idx, val in enumerate(cluster_cnt) if val != 0]
                 if len(dominent_clus) == 0:
                     dominent_clus = [0]
 
             all_outputs = []
             for cluster_idx in dominent_clus:
                 inf_out, _ = branches[cluster_idx](backbone_out, augment=augment,out=backbone.layer_outputs)  # inference and training outputs
-                t0 += torch_utils.time_synchronized() - t
 
                 full_detection = torch.zeros(inf_out.shape[0],inf_out.shape[1], nc+5, device=device)
                 full_detection[:, :, 0:5] = inf_out[:, :, 0:5]
@@ -428,6 +383,7 @@ def test_branches(cfg,
             if len(all_outputs) == 0:
                 continue
             inf_out = torch.cat(all_outputs, 1)
+            t0 += torch_utils.time_synchronized() - t
             # Run NMS
             t = torch_utils.time_synchronized()
             output = non_max_suppression(inf_out, conf_thres=conf_thres, iou_thres=iou_thres, multi_label=multi_label)
@@ -561,6 +517,9 @@ def test_branches(cfg,
     return (mp, mr, map, mf1, *(loss.cpu() / len(dataloader)).tolist()), maps
 
 
+
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='test.py')
     parser.add_argument('--cfg', type=str, default='cfg/yolov3-spp.cfg', help='*.cfg path')
@@ -577,19 +536,17 @@ if __name__ == '__main__':
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--backbone_cfg', type=str, default='cfg/yolov3-backbone', help='*.cfg path of backbone')
     parser.add_argument('--backbone_weights', type=str, default='weights/yolov3.weights', help='initial weights path')
-    parser.add_argument("--branch0_weights", type=str, default="weights/yolov3.weights", help="path to weights file")
-    parser.add_argument("--branch1_weights", type=str, default="weights/yolov3.weights", help="path to weights file")
-    parser.add_argument("--branch2_weights", type=str, default="weights/yolov3.weights", help="path to weights file")
-    parser.add_argument("--branch3_weights", type=str, default="weights/yolov3.weights", help="path to weights file")
-    parser.add_argument("--branch0_cfg", type=str, default="cfg/adayolo_branch0.cfg", help="path to weights file")
-    parser.add_argument("--branch1_cfg", type=str, default="cfg/adayolo_branch1.cfg", help="path to weights file")
-    parser.add_argument("--branch2_cfg", type=str, default="cfg/adayolo_branch2.cfg", help="path to weights file")
-    parser.add_argument("--branch3_cfg", type=str, default="cfg/adayolo_branch3.cfg", help="path to weights file")
+    parser.add_argument("--branches_weights", nargs="+", type=str, default="weights/yolov3.weights", help="path to weights file")
+    parser.add_argument("--branches_cfgs", nargs="+", type=str, default="cfg/adayolo_branch0.cfg", help="path to weights file")
     parser.add_argument('--clusters', type=str, help='Clusters Path')
     parser.add_argument('--cluster_idx', type=int, default=0, help='index of cluster in case of single branch testing')
     parser.add_argument("--branch_controller_weights", type=str, help="path to weights file")
     parser.add_argument("--branch_controller_cfg", type=str, help="path to weights file")
     parser.add_argument('--oracle', action='store_true', help='test the oracle model')
+    parser.add_argument('--single', action='store_true', help='test the single branch model')
+    parser.add_argument('--multi', action='store_true', help='test the multi branch model')
+    parser.add_argument('--bc-thres', type=float, default=0.1, help='object confidence threshold')
+
     opt = parser.parse_args()
     opt.save_json = opt.save_json or any([x in opt.data for x in ['coco.data', 'coco2014.data', 'coco2017.data']])
     opt.cfg = check_file(opt.cfg)  # check file
