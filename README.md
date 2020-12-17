@@ -7,10 +7,10 @@ Convolutional Neural Networks achieve state-of-the-art accuracy in object detect
 ## How It Works
 AdaCon consists of two main steps:
 ### Spatial-Context based Clustering 
-<img src="clustering_spatial_context.jpg" width="70%" style="display: block;  margin: 0 auto;">
+<img src="clustering_spatial_context.jpg" width="90%" style="display: block;  margin: 0 auto;">
 
 ### Adaptive Object Detction model
-<img src="adaptive_architecture.jpg" width="70%" style="display: block;  margin: 0 auto;">
+<img src="adaptive_architecture.jpg" width="90%" style="display: block;  margin: 0 auto;">
 Our Object Detection model consists of three components: a backbone, a branch controller, and a pool of specialized detection heads (branches).
 
 
