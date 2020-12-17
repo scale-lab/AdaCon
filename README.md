@@ -23,16 +23,18 @@ $ pip install -r requirements.txt
 
 ## Try it yourself
 
-## Define your model
+### Define your model
 
-## Testing
+### Testing
 **Test a static YOLO model** 
+
 **Test a dynamic YOLO model**
 
 
-## Training
+### Training
 
 **Train a static YOLO model** 
+
 **Train a dynamic YOLO model**
 
 
