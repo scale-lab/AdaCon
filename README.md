@@ -21,7 +21,11 @@ Python 3.8 or later with all [requirements.txt](https://github.com/ultralytics/y
 $ pip install -r requirements.txt
 ```
 
-## Try it yourself
+## quick start demo on COCO dataset
+
+## Try it on your data
+
+### Cluster your data
 
 ### Define your model
 
