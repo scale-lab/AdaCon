@@ -28,7 +28,7 @@ Our adaptive object detection model consists of three components: a backbone, a 
 3. Download your dataset. Run `./data/get_coco2014.sh` or `./data/get_coco2017.sh` to download COCO 2014 or COCO 2017 respectively. Or follow this [tutorial](https://github.com/ultralytics/yolov3/wiki/Train-Custom-Data) to use your custom dataset.
 
 ## Quick start demo on COCO dataset
-1. Define an adaptive model. [model.args]() show an example for defining an adaptive model.
+1. Define your model. In [model.args](https://github.com/scale-lab/AdaCon/blob/master/model.args), we show an example for defining an adaptive and a static model.
 
 2. Test the adaptive model by running 
 
