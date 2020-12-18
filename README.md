@@ -40,8 +40,8 @@ Our adaptive object detection model consists of three components: a **backbone**
 
 ## Try it on your data
 
-1. Cluster your data: run `python cluster.py`
-2. Example provided in [model.args](https://github.com/scale-lab/AdaCon/blob/master/model.args).
+1. Cluster your data: run `python cluster.py --data data/coco2014.data --num_clusters 4`
+2. Define your model architecture. Example provided in [model.args](https://github.com/scale-lab/AdaCon/blob/master/model.args).
 
 ### Training
 
