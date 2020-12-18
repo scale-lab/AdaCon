@@ -257,9 +257,7 @@ def test(cfg,
 
 
 
-def test_branches(cfg,
-         data,
-         weights=None,
+def test_branches(data,
          batch_size=16,
          imgsz=416,
          conf_thres=0.001,
@@ -281,7 +279,7 @@ def test_branches(cfg,
     count_parameters(backbone)
 
     branches = []
-    for i, cfg in enumerate(opt.branches_cfgs):
+    for i, cfg in enumerate(opt.branches_cfg):
         branch = Darknet(cfg, imgsz)
         if opt.branches_weights:  # pytorch format
             branch.load_state_dict(torch.load(opt.branches_weights[i], map_location=device)['model'])
@@ -299,6 +297,7 @@ def test_branches(cfg,
 
     # Configure run
     data = parse_data_cfg(data)
+    verbose = True
     nc = 1 if single_cls else int(data['classes'])  # number of classes
     path = data['valid']  # path to test images
     names = load_classes(data['names'])  # class names
@@ -508,9 +507,7 @@ def test_branches(cfg,
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(prog='test.py')
-    parser.add_argument('--cfg', type=str, default='cfg/yolov3-spp.cfg', help='*.cfg path')
     parser.add_argument('--data', type=str, default='data/coco2014.data', help='*.data path')
-    parser.add_argument('--weights', type=str, default='weights/yolov3-spp-ultralytics.pt', help='weights path')
     parser.add_argument('--batch-size', type=int, default=16, help='size of each image batch')
     parser.add_argument('--img-size', type=int, default=512, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.001, help='object confidence threshold')
@@ -520,27 +517,50 @@ if __name__ == '__main__':
     parser.add_argument('--device', default='', help='device id (i.e. 0 or 0,1) or cpu')
     parser.add_argument('--single-cls', action='store_true', help='train as single-class dataset')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
-    parser.add_argument('--backbone_cfg', type=str, default='cfg/yolov3-backbone', help='*.cfg path of backbone')
-    parser.add_argument('--backbone_weights', type=str, default='weights/yolov3.weights', help='initial weights path')
-    parser.add_argument("--branches_weights", nargs="+", type=str, default="weights/yolov3.weights", help="path to weights file")
-    parser.add_argument("--branches_cfgs", nargs="+", type=str, default="cfg/adayolo_branch0.cfg", help="path to weights file")
-    parser.add_argument('--clusters', type=str, help='Clusters Path')
-    parser.add_argument('--cluster_idx', type=int, default=0, help='index of cluster in case of single branch testing')
-    parser.add_argument("--branch_controller_weights", type=str, help="path to weights file")
-    parser.add_argument("--branch_controller_cfg", type=str, help="path to weights file")
     parser.add_argument('--oracle', action='store_true', help='test the oracle model')
     parser.add_argument('--single', action='store_true', help='test the single branch model')
     parser.add_argument('--multi', action='store_true', help='test the multi branch model')
     parser.add_argument('--bc-thres', type=float, default=0.1, help='object confidence threshold')
+    parser.add_argument('--adaptive', action='store_true', help='train adaptive model')
+    parser.add_argument('--model', type=str, default='model.args', help='File for the model configurations')
 
     opt = parser.parse_args()
     opt.save_json = opt.save_json or any([x in opt.data for x in ['coco.data', 'coco2014.data', 'coco2017.data']])
-    opt.cfg = check_file(opt.cfg)  # check file
+
     opt.data = check_file(opt.data)  # check file
-    print(opt)
+    opt.model = check_file(opt.model)  # check file
 
-    # task = 'test_static', 'test_dynamic', 'test_dynamic_single'
-    if opt.task == "test_static":
+    model_args = parse_model_args(opt.model)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    if opt.adaptive:
+        opt.clusters = check_file(model_args['clusters'])
+        opt.backbone_cfg = check_file(model_args['backbone_cfg'])
+        opt.backbone_weights = check_file(model_args['backbone_weights'])
+        opt.branch_controller_cfg = check_file(model_args['branch_controller_cfg'])
+        opt.branch_controller_weights = check_file(model_args['branch_controller_weights'])
+        opt.branches_cfg = [check_file(f) for f in model_args['branches_cfg']]
+        if 'branches_weights' in model_args:
+            opt.branches_weights = [check_file(f) for f in model_args['branches_weights']]
+        else:
+            opt.branches_weights = None
+    else:
+        opt.cfg = check_file(model_args['cfg'])  # check file
+        opt.weights = check_file(model_args['weights'])  # check file
+
+    if opt.adaptive:  # (default) test normally
+        if not opt.oracle and not opt.single:
+            opt.multi = True
+        test_branches(opt.data,
+             1,
+             opt.img_size,
+             opt.conf_thres,
+             opt.iou_thres,
+             opt.save_json,
+             opt.single_cls,
+             opt.augment,
+             device=device)
+    else:
         test(opt.cfg,
              opt.data,
              opt.weights,
@@ -552,39 +572,28 @@ if __name__ == '__main__':
              opt.single_cls,
              opt.augment,
              device=opt.device)
-    elif opt.task == 'test_dynamic':  # (default) test normally
-        test_branches(opt.cfg,
-             opt.data,
-             opt.weights,
-             opt.batch_size,
-             opt.img_size,
-             opt.conf_thres,
-             opt.iou_thres,
-             opt.save_json,
-             opt.single_cls,
-             opt.augment,
-             device=opt.device)
-    elif opt.task == 'test_dynamic_single':  # (default) test normally
-        clusters = parse_clusters_config(opt.clusters)
-        class_to_cluster_list = get_class_to_cluster_map(clusters)
-        cluster_idx=0,
-        # Initialize model
-        backbone = Backbone(opt.backbone_cfg)
-        backbone.load_darknet_weights(opt.backbone_weights,75)
-        backbone.eval()
 
-        test(opt.cfg,
-             opt.data,
-             opt.weights,
-             opt.batch_size,
-             opt.img_size,
-             opt.conf_thres,
-             opt.iou_thres,
-             opt.save_json,
-             opt.single_cls,
-             opt.augment,
-             device=opt.device,
-             clusters=clusters,
-             class_to_cluster_list=class_to_cluster_list,
-             cluster_idx=int(opt.cluster_idx),
-             backbone=backbone)
+    # elif opt.task == 'test_dynamic_single':  # For debugging
+    #     clusters = parse_clusters_config(opt.clusters)
+    #     class_to_cluster_list = get_class_to_cluster_map(clusters)
+    #     cluster_idx=0,
+    #     # Initialize model
+    #     backbone = Backbone(opt.backbone_cfg)
+    #     backbone.load_darknet_weights(opt.backbone_weights,75)
+    #     backbone.eval()
+
+    #     test(opt.cfg,
+    #          opt.data,
+    #          opt.weights,
+    #          opt.batch_size,
+    #          opt.img_size,
+    #          opt.conf_thres,
+    #          opt.iou_thres,
+    #          opt.save_json,
+    #          opt.single_cls,
+    #          opt.augment,
+    #          device=opt.device,
+    #          clusters=clusters,
+    #          class_to_cluster_list=class_to_cluster_list,
+    #          cluster_idx=int(opt.cluster_idx),
+    #          backbone=backbone)
