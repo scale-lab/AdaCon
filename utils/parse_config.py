@@ -51,6 +51,21 @@ def parse_model_cfg(path):
 
     return mdefs
 
+def parse_model_args(path):
+    with open(path, 'r') as f:
+        lines = f.readlines()
+    
+    options = dict()
+    for line in lines:
+        line = line.strip()
+        if line == '' or line.startswith('#'):
+            continue
+
+        key, val = line.split('=')
+        options[key.strip()] = val.strip()
+        if len(options[key.strip()].split(" ")) > 1:
+            options[key.strip()] = options[key.strip()].split(" ")
+    return options
 
 def parse_data_cfg(path):
     # Parses the data configuration file

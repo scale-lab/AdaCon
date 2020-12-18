@@ -1092,6 +1092,16 @@ def get_class_to_cluster_map(clusters_list):
 
     return class_to_cluster_list
 
+def get_common_classes(clusters):
+    common_classes = []
+    for c in clusters[0]:
+        add = True
+        for others in clusters:
+            if c not in others:
+                add = False
+        if add:
+            common_classes.append(c)
+    return common_classes
 
 def count_parameters(model):
     table = PrettyTable(["Modules", "Parameters"])

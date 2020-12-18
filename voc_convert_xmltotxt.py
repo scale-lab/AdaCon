@@ -86,8 +86,6 @@ def xml_to_txt():
                 
                 xmax = xmax - xmin
                 ymax = ymax - ymin
-                xmin = xmin + xmax/2
-                ymin = ymin + ymax/2
                 xmin = '%.3f'%(xmin/width)
                 xmax = '%.3f'%(xmax/width)
                 ymin = '%.3f'%(ymin/height)

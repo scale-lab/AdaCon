@@ -131,7 +131,7 @@ def create_modules(module_defs, img_size, cfg):
         # Register module list and number of output filters
         module_list.append(modules)
         output_filters.append(filters)
-
+    print(module_list)
     #routs_binary = [False] * (i + 1)
     #for i in routs:
         #routs_binary[i] = True
@@ -610,7 +610,7 @@ class BranchController(nn.Module):
         x = x.view(-1, self.num_flat_features(x))
         x = F.leaky_relu(self.fc1(x),0.1)
         x = self.fc2(x)
-        return F.softmax(x)
+        return F.sigmoid(x)
 
     def num_flat_features(self, x):
         size = x.size()[1:]  # all dimensions except the batch dimension
