@@ -5,7 +5,7 @@ import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.tensorboard import SummaryWriter
 
-import test  # import test.py to get mAP after each epoch
+from test import test  # import test.py to get mAP after each epoch
 from models import *
 from utils.datasets import *
 from utils.utils import *
@@ -18,9 +18,9 @@ except:
     mixed_precision = False  # not installed
 
 wdir = 'weights' + os.sep  # weights dir
-last = wdir + 'last.pt'
-best = wdir + 'best.pt'
-results_file = 'results.txt'
+last = wdir
+best = wdir
+results_file = ""
 
 # Hyperparameters
 hyp = {'giou': 3.54,  # giou loss gain
@@ -53,6 +53,12 @@ if f:
 if hyp['fl_gamma']:
     print('Using FocalLoss(gamma=%g)' % hyp['fl_gamma'])
 
+def train_branch_controller(branch_controller_cfg, branch_controller_weights=None):
+    backbone = Backbone(opt.backbone_cfg).to(device)
+    backbone.load_darknet_weights(opt.backbone_weights,75)
+
+    clusters = parse_clusters_config(opt.clusters)
+    class_to_cluster_list = get_class_to_cluster_map(clusters)
 
 def train(hyp):
     cfg = opt.cfg
@@ -62,6 +68,12 @@ def train(hyp):
     accumulate = max(round(64 / batch_size), 1)  # accumulate n times before optimizer update (bs 64)
     weights = opt.weights  # initial training weights
     imgsz_min, imgsz_max, imgsz_test = opt.img_size  # img sizes (min, max, test)
+
+    clusters = None
+    class_to_cluster_list = None
+    if opt.adaptive:
+        clusters = parse_clusters_config(opt.clusters)
+        class_to_cluster_list = get_class_to_cluster_map(clusters)
 
     # Image Sizes
     gs = 32  # (pixels) grid size
@@ -89,6 +101,10 @@ def train(hyp):
 
     # Initialize model
     model = Darknet(cfg).to(device)
+    backbone = None
+    if opt.adaptive:
+        backbone = Backbone(opt.backbone_cfg).to(device)
+        backbone.load_darknet_weights(opt.backbone_weights,75)
 
     # Optimizer
     pg0, pg1, pg2 = [], [], []  # optimizer parameter groups
@@ -148,6 +164,7 @@ def train(hyp):
 
     elif len(weights) > 0:  # darknet format
         # possible weights are '*.weights', 'yolov3-tiny.conv.15',  'darknet53.conv.74' etc.
+        print(weights)
         load_darknet_weights(model, weights)
 
     if opt.freeze_layers:
@@ -276,8 +293,18 @@ def train(hyp):
                     imgs = F.interpolate(imgs, size=ns, mode='bilinear', align_corners=False)
 
             # Forward
-            pred = model(imgs)
-
+            if backbone is None:
+                pred = model(imgs)
+            else:
+                back_out = backbone(imgs)
+                pred = model(back_out, out=backbone.layer_outputs)
+                backbone.layer_outputs = []
+                # In training, we convert targets labels to predictions labels to compute the loss for this branch
+                # TO DO: Think about the otherway around, would that overwhelm the branch???
+                targets = map_labels_to_cluster(targets, clusters, class_to_cluster_list, opt.cluster_idx, device)
+                if targets.shape[0] == 0:
+                    continue
+            
             # Loss
             loss, loss_items = compute_loss(pred, targets, model)
             if not torch.isfinite(loss):
@@ -313,7 +340,7 @@ def train(hyp):
                     # tb_writer.add_graph(model, imgs)  # add model to tensorboard
 
             # end batch ------------------------------------------------------------------------------------------------
-
+            
         # Update scheduler
         scheduler.step()
 
@@ -322,7 +349,7 @@ def train(hyp):
         final_epoch = epoch + 1 == epochs
         if not opt.notest or final_epoch:  # Calculate mAP
             is_coco = any([x in data for x in ['coco.data', 'coco2014.data', 'coco2017.data']]) and model.nc == 80
-            results, maps = test.test(cfg,
+            results, maps = test(cfg,
                                       data,
                                       batch_size=batch_size,
                                       imgsz=imgsz_test,
@@ -330,7 +357,11 @@ def train(hyp):
                                       save_json=final_epoch and is_coco,
                                       single_cls=opt.single_cls,
                                       dataloader=testloader,
-                                      multi_label=ni > n_burn)
+                                      multi_label=ni > n_burn, 
+                                      clusters=clusters,
+                                      class_to_cluster_list=class_to_cluster_list,
+                                      cluster_idx=opt.cluster_idx,
+                                      backbone=backbone)
 
         # Write
         with open(results_file, 'a') as f:
@@ -375,8 +406,8 @@ def train(hyp):
         n = '_' + n if not n.isnumeric() else n
         fresults, flast, fbest = 'results%s.txt' % n, wdir + 'last%s.pt' % n, wdir + 'best%s.pt' % n
         for f1, f2 in zip([wdir + 'last.pt', wdir + 'best.pt', 'results.txt'], [flast, fbest, fresults]):
-            if os.path.exists(f1):
-                os.rename(f1, f2)  # rename
+            if os.path.exists(f2):
+                #os.rename(f1, f2)  # rename
                 ispt = f2.endswith('.pt')  # is *.pt
                 strip_optimizer(f2) if ispt else None  # strip optimizer
                 os.system('gsutil cp %s gs://%s/weights' % (f2, opt.bucket)) if opt.bucket and ispt else None  # upload
@@ -393,8 +424,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--epochs', type=int, default=300)  # 500200 batches at bs 16, 117263 COCO images = 273 epochs
     parser.add_argument('--batch-size', type=int, default=16)  # effective bs = batch_size * accumulate = 16 * 4 = 64
-    parser.add_argument('--cfg', type=str, default='cfg/yolov3-spp.cfg', help='*.cfg path')
-    parser.add_argument('--data', type=str, default='data/coco2017.data', help='*.data path')
+    parser.add_argument('--data', type=str, default='data/coco2014.data', help='*.data path')
     parser.add_argument('--multi-scale', action='store_true', help='adjust (67%% - 150%%) img_size every 10 batches')
     parser.add_argument('--img-size', nargs='+', type=int, default=[320, 640], help='[min_train, max-train, test]')
     parser.add_argument('--rect', action='store_true', help='rectangular training')
@@ -404,20 +434,48 @@ if __name__ == '__main__':
     parser.add_argument('--evolve', action='store_true', help='evolve hyperparameters')
     parser.add_argument('--bucket', type=str, default='', help='gsutil bucket')
     parser.add_argument('--cache-images', action='store_true', help='cache images for faster training')
-    parser.add_argument('--weights', type=str, default='weights/yolov3-spp-ultralytics.pt', help='initial weights path')
     parser.add_argument('--name', default='', help='renames results.txt to results_name.txt if supplied')
     parser.add_argument('--device', default='', help='device id (i.e. 0 or 0,1 or cpu)')
     parser.add_argument('--adam', action='store_true', help='use adam optimizer')
     parser.add_argument('--single-cls', action='store_true', help='train as single-class dataset')
-    parser.add_argument('--freeze-layers', action='store_true', help='Freeze non-output layers')
+    parser.add_argument('--freeze-layers', action='store_true', help='Freeze non-output layers')å
+    parser.add_argument('--adaptive', action='store_true', help='train adaptive model')
+    parser.add_argument('--model', type=str, default='model.args', help='File for the model configurations')
+
     opt = parser.parse_args()
-    opt.weights = last if opt.resume and not opt.weights else opt.weights
-    check_git_status()
-    opt.cfg = check_file(opt.cfg)  # check file
+
+    if opt.name:
+        last += 'last' + opt.name + '.pt'
+        best += 'best' + opt.name + '.pt'
+        results_file = 'results'  + opt.name + '.txt'
+
+    else:
+        last += 'last.pt'
+        best += 'best.pt'
+        results_file = 'results.txt'
+
     opt.data = check_file(opt.data)  # check file
-    print(opt)
+    opt.model = check_file(opt.model)  # check file
+
+    model_args = parse_model_args(opt.model)
+
+    if opt.adaptive:
+        opt.clusters = check_file(model_args['clusters'])
+        opt.backbone_cfg = check_file(model_args['backbone_cfg'])
+        opt.backbone_weights = check_file(model_args['backbone_weights'])
+        opt.branches_cfg = [check_file(f) for f in model_args['branches_cfg']]
+        if 'branches_weights' in model_args:
+            opt.branches_weights = [check_file(f) for f in model_args['branches_weights']]
+        else:
+            opt.branches_weights = None
+    else:
+        opt.cfg = check_file(model_args['cfg'])  # check file
+        opt.weights = check_file(model_args['weights'])  # check file
+        opt.weights = last if opt.resume and not opt.weights else opt.weights
+    
     opt.img_size.extend([opt.img_size[-1]] * (3 - len(opt.img_size)))  # extend to 3 sizes (min, max, test)
     device = torch_utils.select_device(opt.device, apex=mixed_precision, batch_size=opt.batch_size)
+
     if device.type == 'cpu':
         mixed_precision = False
 
@@ -426,10 +484,23 @@ if __name__ == '__main__':
 
     tb_writer = None
     if not opt.evolve:  # Train normally
-        print('Start Tensorboard with "tensorboard --logdir=runs", view at http://localhost:6006/')
-        tb_writer = SummaryWriter(comment=opt.name)
-        train(hyp)  # train normally
-
+        if opt.adaptive:
+            name_prefix = opt.name
+            for i, cfg in enumerate(opt.branches_cfg):
+                opt.cfg = cfg
+                if opt.branches_weights:
+                    opt.weights = opt.branches_weights[i]
+                else:
+                    opt.weights = None
+                opt.name = name_prefix + str(i)
+                opt.cluster_idx = i
+                print('Start Tensorboard with "tensorboard --logdir=runs", view at http://localhost:6006/')
+                tb_writer = SummaryWriter(comment=opt.name)
+                train(hyp)  # train normally
+        else:
+            print('Start Tensorboard with "tensorboard --logdir=runs", view at http://localhost:6006/')
+            tb_writer = SummaryWriter(comment=opt.name)
+            train(hyp)  # train normally
     else:  # Evolve hyperparameters (optional)
         opt.notest, opt.nosave = True, True  # only test/save final epoch
         if opt.bucket:
