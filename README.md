@@ -7,21 +7,32 @@ Convolutional Neural Networks achieve state-of-the-art accuracy in object detect
 ## How It Works
 AdaCon consists of two main steps:
 ### Spatial-Context based Clustering 
+
 <img src="doc/imgs/clustering_spatial_context.jpg" width="90%" style="display: block;  margin: 0 auto;">
+
+Spatial-context based Clustering has 5 steps. First, we construct the co-occurrence matrix of the object categories where each value represents the frequency of the co-occurrence of the object categories in the same scene across all the training dataset. Then, we remove the common objects. Next, we convert the frequency-based co-occurrence matrix to a correlation matrix. Then, we use the correlation matrix to build a knowledge graph using Fruchterman-Reingold force-directed algorithm. Finally, we cluster the objects based on their location in the knowledge graph
+
 
 ### Adaptive Object Detction model
 <img src="doc/imgs/adaptive_architecture.jpg" width="90%" style="display: block;  margin: 0 auto;">
-Our Object Detection model consists of three components: a backbone, a branch controller, and a pool of specialized detection heads (branches).
+
+Our adaptive object detection model consists of three components: a backbone, a branch controller, and a pool of specialized detection heads (branches). The backbone is first executed to extract the common features in the input image, then a branch controller takes the extracted features and route them towards one or more of the downstream specialized branches. Only the chosen branch(es) are then executed to get the detected object categories and their bounding boxes.
 
 
 ## Requirements
 
-Python 3.8 or later with all [requirements.txt](https://github.com/ultralytics/yolov3/blob/master/requirements.txt) dependencies installed, including `torch>=1.6`. To install run:
-```bash
-$ pip install -r requirements.txt
-```
+1. Clone the repo `git clone https://github.com/scale-lab/AdaCon.git ; cd AdaCon`
 
-## quick start demo on COCO dataset
+2. Install the requirements with Python 3.8 or later  `pip install -r requirements.txt`
+
+3. Download your dataset. Run `./data/get_coco2014.sh` or `./data/get_coco2017.sh` to download COCO 2014 or COCO 2017 respectively. Or follow this [tutorial](https://github.com/ultralytics/yolov3/wiki/Train-Custom-Data) to use your custom dataset.
+
+## Quick start demo on COCO dataset
+1. Define an adaptive model. [model.args]() show an example for defining an adaptive model.
+
+2. Test the adaptive model by running 
+
+3. Train the model from scratch by running `python train.py --model model.args --data data/coco2014.data --adaptive`
 
 ## Try it on your data
 
