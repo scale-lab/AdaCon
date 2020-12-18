@@ -14,4 +14,4 @@ branch_controller_weights=weights/adacon_branch_controller.pth
 branches_cfg=cfg/adacon_branch0v0.cfg cfg/adacon_branch1v0.cfg cfg/adacon_branch2v0.cfg cfg/adacon_branch3v0.cfg
 branches_weights=weights/adacon_branch0v0.pt weights/adacon_branch1v0.pt weights/adacon_branch2v0.pt weights/adacon_branch3v0.pt
 
-clusters=clusters_4_kmeans.data
+clusters=clusters.data
