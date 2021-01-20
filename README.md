@@ -27,9 +27,11 @@ Our adaptive object detection model consists of three components: a **backbone**
 
 1. Clone the repo `git clone https://github.com/scale-lab/AdaCon.git ; cd AdaCon`
 
-2. Install the requirements with Python 3.8 or later  `pip install -r requirements.txt`
+2. Create a virtual environment with Python 3.7 or later `python -m venv env ; source env/bin/activate`
 
-3. Download your dataset. Run `./data/get_coco2014.sh` or `./data/get_coco2017.sh` to download COCO 2014 or COCO 2017 respectively. Or follow this [tutorial](https://github.com/ultralytics/yolov3/wiki/Train-Custom-Data) to use your custom dataset.
+3. Install the requirements using `pip install -r requirements.txt`
+
+4. Download your dataset. Run `./data/get_coco2014.sh` or `./data/get_coco2017.sh` to download COCO 2014 or COCO 2017 respectively. Or follow this [tutorial](https://github.com/ultralytics/yolov3/wiki/Train-Custom-Data) to use your custom dataset.
 
 ## Quick start demo on COCO dataset
 1. Test our defined [adaptive model](https://github.com/scale-lab/AdaCon/blob/master/model.args) by running `python test.py --model model.args --data data/coco2014.data --adaptive`. The default is multi-branch execution mode. To run in single-branch execution mode, add `--single` to the test command.
