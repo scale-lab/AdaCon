@@ -33,7 +33,7 @@ Our adaptive object detection model consists of three components: a **backbone**
 
 4. Download your dataset. Run `cd data ; ./get_coco2014.sh` or `cd data ; ./get_coco2017.sh` to download COCO 2014 or COCO 2017 respectively. Or follow this [tutorial](https://github.com/ultralytics/yolov3/wiki/Train-Custom-Data) to use your custom dataset. (Note that it is > 20GB dataset so the script can take few hours).
 
-5. **Optional** Download the pretrained model. Run `cd weights ; ./download_yolov3_weights.sh`
+5. **Optional** Download the pretrained model. Run `./weights/download_yolov3_weights.sh`
 
 ## Quick start demo on COCO dataset
 
