@@ -10,10 +10,15 @@ curl -c ./cookie -s -L "https://drive.google.com/uc?export=download&id=${fileid}
 curl -Lb ./cookie "https://drive.google.com/uc?export=download&confirm=$(awk '/download/ {print $NF}' ./cookie)&id=${fileid}" -o ${filename}
 rm ./cookie
 
+echo 'Downloaded Labels'
+echo 'Unzipping Labels ... (takes ~ 30mins)'
+
 # Unzip labels
-unzip -q ${filename} # for coco.zip
+unzip ${filename} # for coco.zip
 # tar -xzf ${filename} # for coco.tar.gz
 rm ${filename}
+
+echo 'Unzipped Labels'
 
 # Download and unzip images
 cd coco/images
