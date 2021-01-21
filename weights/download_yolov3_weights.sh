@@ -4,7 +4,7 @@
 # mkdir -p weights && cd weights
 
 # copy darknet weight files, continue '-c' if partially downloaded
-# wget -c https://pjreddie.com/media/files/yolov3.weights
+wget -c https://pjreddie.com/media/files/yolov3.weights -P weights
 # wget -c https://pjreddie.com/media/files/yolov3-tiny.weights
 # wget -c https://pjreddie.com/media/files/yolov3-spp.weights
 
