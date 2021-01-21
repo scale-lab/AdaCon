@@ -31,12 +31,17 @@ Our adaptive object detection model consists of three components: a **backbone**
 
 3. Install the requirements using `pip install -r requirements.txt`
 
-4. Download your dataset. Run `./data/get_coco2014.sh` or `./data/get_coco2017.sh` to download COCO 2014 or COCO 2017 respectively. Or follow this [tutorial](https://github.com/ultralytics/yolov3/wiki/Train-Custom-Data) to use your custom dataset.
+4. Download your dataset. Run `cd data ; ./get_coco2014.sh` or `cd data ; ./get_coco2017.sh` to download COCO 2014 or COCO 2017 respectively. Or follow this [tutorial](https://github.com/ultralytics/yolov3/wiki/Train-Custom-Data) to use your custom dataset. (Note that it is > 20GB dataset so the script can take few hours).
+
+5. **Optional** Download the pretrained model. Run `cd weights ; ./download_yolov3_weights.sh`
 
 ## Quick start demo on COCO dataset
-1. Test our defined [adaptive model](https://github.com/scale-lab/AdaCon/blob/master/model.args) by running `python test.py --model model.args --data data/coco2014.data --adaptive`. The default is multi-branch execution mode. To run in single-branch execution mode, add `--single` to the test command.
 
-2. Train our defined [adaptive model](https://github.com/scale-lab/AdaCon/blob/master/model.args) from scratch by running `python train.py --model model.args --data data/coco2014.data --adaptive`
+1. Make sure to download the pretrained models by running `cd weights ; ./download_yolov3_weights.sh`.
+
+2. Test our defined [adaptive model](https://github.com/scale-lab/AdaCon/blob/master/model.args) by running `python test.py --model model.args --data data/coco2014.data --adaptive`. The default is multi-branch execution mode. To run in single-branch execution mode, add `--single` to the test command.
+
+3. Train our defined [adaptive model](https://github.com/scale-lab/AdaCon/blob/master/model.args) from scratch by running `python train.py --model model.args --data data/coco2014.data --adaptive`
 
 ## Try it on your data
 
