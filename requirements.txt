@@ -13,6 +13,8 @@ torch>=1.6.0
 torchvision>=0.7.0
 tqdm>=4.41.0
 prettytable
+networkx
+sklearn 
 
 # coco ----------------------------------------
 # pycocotools>=2.0
