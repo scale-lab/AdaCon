@@ -589,15 +589,20 @@ class Backbone(nn.Module):
 class BranchController(nn.Module):
     def __init__(self, cfg, out_classes, img_size=(416,416)):
         super(BranchController, self).__init__()
-        self.module_defs = parse_model_config(cfg)
-        _, self.module_list = extras.create_modules(self.module_defs)
+        self.module_defs = parse_model_cfg(cfg)
+        self.module_list = create_modules(self.module_defs, img_size, cfg)
 
+        # self.module_defs = parse_model_config(cfg)
+        # _, self.module_list = extras.create_modules(self.module_defs)
+        
         self.nc = out_classes
         self.seen = 0
         self.fc1 = nn.Linear(64, 32)
         self.fc2 = nn.Linear(32, self.nc)
 
-    def forward(self, x, layer_outputs=[]):
+    def forward(self, x, layer_outputs=None):
+        if layer_outputs == None:
+            layer_outputs = []
         for i, (module_def, module) in enumerate(zip(self.module_defs, self.module_list)):
             if module_def["type"] in ["convolutional", "upsample", "maxpool"]:
                 x = module(x)
@@ -605,7 +610,6 @@ class BranchController(nn.Module):
                 x = torch.cat([layer_outputs[int(layer_i)] for layer_i in module_def["layers"].split(",")], 1)
             layer_outputs.append(x)
 
-            layer_outputs.append(x)
             #print(i, x.shape, "clus")
         x = x.view(-1, self.num_flat_features(x))
         x = F.leaky_relu(self.fc1(x),0.1)
