@@ -15,6 +15,8 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 
 from utils.utils import xyxy2xywh, xywh2xyxy
+import torchvision.transforms as transforms
+import torch.nn.functional as F
 
 help_url = 'https://github.com/ultralytics/yolov3/wiki/Train-Custom-Data'
 img_formats = ['.bmp', '.jpg', '.jpeg', '.png', '.tif', '.tiff', '.dng']
@@ -845,3 +847,142 @@ def create_folder(path='./new_folder'):
     if os.path.exists(path):
         shutil.rmtree(path)  # delete output folder
     os.makedirs(path)  # make new output folder
+
+
+
+def pad_to_square(img, pad_value):
+    c, h, w = img.shape
+    dim_diff = np.abs(h - w)
+    # (upper / left) padding and (lower / right) padding
+    pad1, pad2 = dim_diff // 2, dim_diff - dim_diff // 2
+    # Determine padding
+    pad = (0, 0, pad1, pad2) if h <= w else (pad1, pad2, 0, 0)
+    # Add padding
+    img = F.pad(img, pad, "constant", value=pad_value)
+
+    return img, pad
+
+def one_hot_embedding(labels, num_classes):
+    """Embedding labels to one-hot form.
+
+    Args:
+      labels: (LongTensor) class labels, sized [N,].
+      num_classes: (int) number of classes.
+
+    Returns:
+      (tensor) encoded labels, sized [N, #classes].
+    """
+    y = np.eye(num_classes, dtype=float)
+    return y[labels] 
+
+def resize(image, size):
+    image = F.interpolate(image.unsqueeze(0), size=size, mode="nearest").squeeze(0)
+    return image
+
+# This creates a classification dataset where the labels are the clusters
+# The list of classes clusters should be an input
+# The label of each image is the dominant cluster for the objects in the image
+class ClustersDataset(Dataset):
+    def __init__(self, path, img_size=416, augment=True, multiscale=True, normalized_labels=True, clusters=None):
+        try:
+            path = str(Path(path))  # os-agnostic
+            parent = str(Path(path).parent) + os.sep
+            if os.path.isfile(path):  # file
+                print("Opening", path)
+                with open(path, 'r') as f:
+                    f = f.read().splitlines()
+                    f = [x.replace('./', parent) if x.startswith('./') else x for x in f]  # local to global path (coco 2017 format)
+                    f = [x.replace('../coco/', parent) if x.startswith('../coco/') else x for x in f]  # local to global path (coco 2014 format)
+
+            elif os.path.isdir(path):  # folder
+                f = glob.iglob(path + os.sep + '*.*')
+            else:
+                raise Exception(f"%s does not exist" % path)
+            self.img_files = [x.replace('/', os.sep) for x in f if os.path.splitext(x)[-1].lower() in img_formats]
+        except:
+            raise Exception(f"Error loading data from %s. See %s" % (path, help_url))
+
+        # with open(list_path, "r") as file:
+        #     self.img_files = file.readlines()
+
+        self.label_files = [
+            path.replace("images", "labels").replace(".png", ".txt").replace(".jpg", ".txt")
+            for path in self.img_files
+        ]
+
+        self.img_size = img_size
+        self.max_objects = 100
+        self.augment = augment
+        self.multiscale = multiscale
+        self.normalized_labels = normalized_labels
+        self.min_size = self.img_size - 3 * 32
+        self.max_size = self.img_size + 3 * 32
+        self.batch_count = 0
+        self.clusters = clusters
+
+    def __getitem__(self, index):
+
+        # ---------
+        #  Image
+        # ---------
+
+        img_path = self.img_files[index % len(self.img_files)].rstrip()
+
+        # Extract image as PyTorch tensor
+        img = transforms.ToTensor()(Image.open(img_path).convert('RGB'))
+        # img = transforms.ToTensor()(cv2.cvtColor(cv2.imread(img_path), cv2.COLOR_BGR2RGB))
+        # Handle images with less than three channels
+        if len(img.shape) != 3:
+            img = img.unsqueeze(0)
+            img = img.expand((3, img.shape[1:]))
+
+        _, h, w = img.shape
+        h_factor, w_factor = (h, w) if self.normalized_labels else (1, 1)
+        # Pad to square resolution
+        img, pad = pad_to_square(img, 0)
+        _, padded_h, padded_w = img.shape
+
+        # ---------
+        #  Label
+        # ---------
+
+        label_path = self.label_files[index % len(self.img_files)].rstrip()
+
+        target = None
+        if os.path.exists(label_path):
+            boxes = torch.from_numpy(np.loadtxt(label_path).reshape(-1, 5))
+            boxes = boxes[:, 0]
+
+            clusters_cnt = torch.zeros(len(self.clusters))
+            for box in boxes:
+                for i, cluster in enumerate(self.clusters):
+                    if box in cluster:
+                        clusters_cnt[i] += 1
+
+            target = torch.argmax(clusters_cnt).item()
+            target = np.zeros(len(self.clusters))
+        else:
+            print(label_path, "does not exist")
+        return img_path, img, target
+
+    def collate_fn(self, batch):
+        paths, imgs, targets = list(zip(*batch))
+        # # Add sample index to targets
+        # for i, boxes in enumerate(targets):
+        #     boxes[:, 0] = i
+        paths = [path for i, path in enumerate(paths) if targets[i] is not None]
+        imgs = [img for i, img in enumerate(imgs) if targets[i] is not None]
+        targets = [boxes.tolist() for boxes in targets if boxes is not None]
+        targets = torch.tensor(targets)
+
+        # Selects new image size every tenth batch
+        if self.multiscale and self.batch_count % 10 == 0:
+            self.img_size = random.choice(range(self.min_size, self.max_size + 1, 32))
+        # Resize images to input shape
+        imgs = torch.stack([resize(img, self.img_size) for img in imgs])
+        self.batch_count += 1
+        return paths, imgs, targets
+
+    def __len__(self):
+        return len(self.img_files)
+

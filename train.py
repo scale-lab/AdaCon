@@ -9,6 +9,7 @@ from test import test  # import test.py to get mAP after each epoch
 from models import *
 from utils.datasets import *
 from utils.utils import *
+from torch.autograd import Variable
 
 mixed_precision = True
 try:  # Mixed precision training https://github.com/NVIDIA/apex
@@ -53,12 +54,127 @@ if f:
 if hyp['fl_gamma']:
     print('Using FocalLoss(gamma=%g)' % hyp['fl_gamma'])
 
-def train_branch_controller(branch_controller_cfg, branch_controller_weights=None):
-    backbone = Backbone(opt.backbone_cfg).to(device)
-    backbone.load_darknet_weights(opt.backbone_weights,75)
-
+def train_branch_controller():
+    # Get data configuration
+    init_seeds()
+    data_dict = parse_data_cfg(opt.data)
+    train_path = data_dict['train']
+    test_path = data_dict['valid']
+    nc = 1 if opt.single_cls else int(data_dict['classes'])  # number of classes
     clusters = parse_clusters_config(opt.clusters)
     class_to_cluster_list = get_class_to_cluster_map(clusters)
+
+    # Create and load the backbone
+    backbone = Backbone(opt.backbone_cfg).to(device)
+    backbone.load_darknet_weights(opt.backbone_weights,75)
+    backbone.eval()
+
+    # Create the  branch controller
+    branch_controller = BranchController(opt.branch_controller_cfg, len(clusters)).to(device)
+    count_parameters(branch_controller)
+    if opt.branch_controller_weights:
+        branch_controller.load_state_dict(torch.load(opt.branch_controller_weights, map_location=device)['model'])
+
+    # Dataset
+    dataset = ClustersDataset(train_path, augment=True, multiscale=opt.multi_scale,  clusters=clusters)
+    dataset_valid = ClustersDataset(test_path, augment=True, multiscale=False,  clusters=clusters)
+
+    # Dataloader
+    batch_size = min(opt.batch_size, len(dataset))
+    nw = min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8])  # number of workers
+    dataloader = torch.utils.data.DataLoader(dataset,
+                                             batch_size=batch_size,
+                                             num_workers=nw,
+                                             shuffle=not opt.rect,  # Shuffle=True unless rectangular training is used
+                                             pin_memory=True,
+                                             collate_fn=dataset.collate_fn)
+
+
+
+    dataloader_valid = torch.utils.data.DataLoader(dataset_valid,
+                                             batch_size=batch_size,
+                                             num_workers=nw,
+                                             shuffle=True,  # Shuffle=True unless rectangular training is used
+                                             pin_memory=True,
+                                             collate_fn=dataset.collate_fn)
+
+    criterion = nn.MSELoss()
+    learning_rate = 0.001
+    momentum = 0.9
+    random_seed = 1
+    torch.manual_seed(random_seed)
+
+    best_accuracy = 0
+    best_model = branch_controller
+
+    # Optimizer
+    pg0, pg1, pg2 = [], [], []  # optimizer parameter groups
+    for k, v in dict(branch_controller.named_parameters()).items():
+        if '.bias' in k:
+            pg2 += [v]  # biases
+        elif 'Conv2d.weight' in k:
+            pg1 += [v]  # apply weight_decay
+        else:
+            pg0 += [v]  # all else
+
+    if opt.adam:
+        # hyp['lr0'] *= 0.1  # reduce lr (i.e. SGD=5E-3, Adam=5E-4)
+        optimizer = optim.Adam(pg0, lr=hyp['lr0'])
+        # optimizer = AdaBound(pg0, lr=hyp['lr0'], final_lr=0.1)
+    else:
+        optimizer = optim.SGD(pg0, lr=hyp['lr0'], momentum=hyp['momentum'], nesterov=True)
+    optimizer.add_param_group({'params': pg1, 'weight_decay': hyp['weight_decay']})  # add pg1 with weight_decay
+    optimizer.add_param_group({'params': pg2})  # add pg2 (biases)
+    print('Optimizer groups: %g .bias, %g Conv2d.weight, %g other' % (len(pg2), len(pg1), len(pg0)))
+    del pg0, pg1, pg2
+
+    epochs = 100
+    for epoch in range(epochs):
+        branch_controller.train()
+        start_time = time.time()
+        
+        for batch_i, (_, imgs, targets) in enumerate(dataloader): # TODO convert to dataloader
+            imgs = imgs.to(device).float() / 255.0
+            targets = targets.to(device)
+            backbone_out = backbone(imgs)
+            backbone.layer_outputs = []            
+            output = branch_controller(backbone_out)
+            loss = criterion(output, targets)
+            loss.backward()
+            
+            optimizer.step()    # Does the update
+            optimizer.zero_grad()
+            
+            branch_controller.seen += imgs.size(0)
+            if batch_i % 100 == 0:
+                print(batch_i,len(dataloader), loss.cpu().detach().numpy())
+        
+        print("Evaluate on ", len(dataloader_valid))
+
+        mse = 0
+        for batch_i, (_, imgs, targets) in enumerate(dataloader_valid):
+            branch_controller.train()
+            imgs = Variable(imgs.to(device))
+            targets = Variable(targets.to(device), requires_grad=False)
+
+            backbone_out = backbone(imgs)
+            backbone.layer_outputs = []            
+            output = branch_controller(backbone_out)
+
+            output = torch.argmax(output.cpu(), dim=1).numpy()
+            targets = torch.argmax(targets.cpu(), dim=1).numpy()
+
+            mse += np.mean(np.square(targets-output))
+            
+        print(epoch, "Mean squared error = ", mse)
+        if best_accuracy > mse:
+            best_accuracy = mse
+            best_model = model
+    
+    print("Saving best model with accuracy", best_accuracy)
+    bc_filename = wdir + "bc" + opt.name +".pt"
+    torch.save(best_model, bc_filename)
+
 
 def train(hyp):
     cfg = opt.cfg
@@ -438,7 +554,7 @@ if __name__ == '__main__':
     parser.add_argument('--device', default='', help='device id (i.e. 0 or 0,1 or cpu)')
     parser.add_argument('--adam', action='store_true', help='use adam optimizer')
     parser.add_argument('--single-cls', action='store_true', help='train as single-class dataset')
-    parser.add_argument('--freeze-layers', action='store_true', help='Freeze non-output layers')å
+    parser.add_argument('--freeze-layers', action='store_true', help='Freeze non-output layers')
     parser.add_argument('--adaptive', action='store_true', help='train adaptive model')
     parser.add_argument('--model', type=str, default='model.args', help='File for the model configurations')
 
@@ -468,6 +584,12 @@ if __name__ == '__main__':
             opt.branches_weights = [check_file(f) for f in model_args['branches_weights']]
         else:
             opt.branches_weights = None
+        opt.branch_controller_cfg = check_file(model_args['branch_controller_cfg'])
+        if 'branch_controller_weights' in model_args:
+            opt.branch_controller_weights = check_file(model_args['branch_controller_weights'])
+        else:
+            opt.branch_controller_weights = None
+
     else:
         opt.cfg = check_file(model_args['cfg'])  # check file
         opt.weights = check_file(model_args['weights'])  # check file
@@ -486,6 +608,9 @@ if __name__ == '__main__':
     if not opt.evolve:  # Train normally
         if opt.adaptive:
             name_prefix = opt.name
+            train_branch_controller()
+            
+            # Train each branch (TO DO, Parallelize branch training)
             for i, cfg in enumerate(opt.branches_cfg):
                 opt.cfg = cfg
                 if opt.branches_weights:
@@ -497,6 +622,8 @@ if __name__ == '__main__':
                 print('Start Tensorboard with "tensorboard --logdir=runs", view at http://localhost:6006/')
                 tb_writer = SummaryWriter(comment=opt.name)
                 train(hyp)  # train normally
+
+
         else:
             print('Start Tensorboard with "tensorboard --logdir=runs", view at http://localhost:6006/')
             tb_writer = SummaryWriter(comment=opt.name)
