@@ -36,7 +36,7 @@ def detect_adaptive(save_img=False):
     branch_controller = None
     if opt.branch_controller_cfg:
         branch_controller = BranchController(opt.branch_controller_cfg, len(clusters)).to(device)
-        branch_controller.load_state_dict(torch.load(opt.branch_controller_weights))
+        branch_controller.load_state_dict(torch.load(opt.branch_controller_weights, map_location=device))
         count_parameters(branch_controller)
         branch_controller.eval()
 
@@ -76,7 +76,9 @@ def detect_adaptive(save_img=False):
             else:
                 class_out = branch_controller(backbone_out, [])
                 dominent_clus = torch.where(class_out > opt.bc_thres)[1]
-
+        
+        if len(dominent_clus) == 0:
+            dominent_clus = [0]
         all_outputs = []
         for cluster_idx in dominent_clus:
             inf_out, _ = branches[cluster_idx](backbone_out, augment=False,out=backbone.layer_outputs)  # inference and training outputs
