@@ -12,4 +12,4 @@ wget -c http://scale.engin.brown.edu/tools/AdaCon/adacon_branch2v0.pt -P weights
 wget -c http://scale.engin.brown.edu/tools/AdaCon/adacon_branch3v0.pt -P weights
 
 # Get AdaCon Branch Controller
-wget -c http://scale.engin.brown.edu/tools/AdaCon/adacon_branch_controller.pth -P weights
+wget -c http://scale.engin.brown.edu/tools/AdaCon/adacon_branch_controller.pt -P weights
