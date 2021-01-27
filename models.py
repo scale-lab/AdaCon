@@ -589,11 +589,11 @@ class Backbone(nn.Module):
 class BranchController(nn.Module):
     def __init__(self, cfg, out_classes, img_size=(416,416)):
         super(BranchController, self).__init__()
-        self.module_defs = parse_model_cfg(cfg)
-        self.module_list = create_modules(self.module_defs, img_size, cfg)
+        # self.module_defs = parse_model_cfg(cfg)
+        # self.module_list = create_modules(self.module_defs, img_size, cfg)
 
-        # self.module_defs = parse_model_config(cfg)
-        # _, self.module_list = extras.create_modules(self.module_defs)
+        self.module_defs = parse_model_config(cfg)
+        _, self.module_list = extras.create_modules(self.module_defs)
         
         self.nc = out_classes
         self.seen = 0
@@ -614,7 +614,7 @@ class BranchController(nn.Module):
         x = x.view(-1, self.num_flat_features(x))
         x = F.leaky_relu(self.fc1(x),0.1)
         x = self.fc2(x)
-        return F.softmax(x)
+        return F.sigmoid(x)
 
     def num_flat_features(self, x):
         size = x.size()[1:]  # all dimensions except the batch dimension
