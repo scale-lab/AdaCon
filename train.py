@@ -73,7 +73,7 @@ def train_branch_controller():
     branch_controller = BranchController(opt.branch_controller_cfg, len(clusters)).to(device)
     count_parameters(branch_controller)
     if opt.branch_controller_weights:
-        branch_controller.load_state_dict(torch.load(opt.branch_controller_weights, map_location=device)['model'])
+        branch_controller.load_state_dict(torch.load(opt.branch_controller_weights))
 
     # Dataset
     dataset = ClustersDataset(train_path, augment=True, multiscale=opt.multi_scale,  clusters=clusters)
@@ -101,40 +101,20 @@ def train_branch_controller():
     criterion = nn.MSELoss()
     learning_rate = 0.001
     momentum = 0.9
-    random_seed = 1
-    torch.manual_seed(random_seed)
 
     best_accuracy = 0
     best_model = branch_controller
 
-    # Optimizer
-    pg0, pg1, pg2 = [], [], []  # optimizer parameter groups
-    for k, v in dict(branch_controller.named_parameters()).items():
-        if '.bias' in k:
-            pg2 += [v]  # biases
-        elif 'Conv2d.weight' in k:
-            pg1 += [v]  # apply weight_decay
-        else:
-            pg0 += [v]  # all else
+    # Optimizer 
+    optimizer = torch.optim.SGD(branch_controller.parameters(),lr=learning_rate, momentum=momentum)
 
-    if opt.adam:
-        # hyp['lr0'] *= 0.1  # reduce lr (i.e. SGD=5E-3, Adam=5E-4)
-        optimizer = optim.Adam(pg0, lr=hyp['lr0'])
-        # optimizer = AdaBound(pg0, lr=hyp['lr0'], final_lr=0.1)
-    else:
-        optimizer = optim.SGD(pg0, lr=hyp['lr0'], momentum=hyp['momentum'], nesterov=True)
-    optimizer.add_param_group({'params': pg1, 'weight_decay': hyp['weight_decay']})  # add pg1 with weight_decay
-    optimizer.add_param_group({'params': pg2})  # add pg2 (biases)
-    print('Optimizer groups: %g .bias, %g Conv2d.weight, %g other' % (len(pg2), len(pg1), len(pg0)))
-    del pg0, pg1, pg2
-
-    epochs = 100
+    epochs = 10
     for epoch in range(epochs):
-        branch_controller.train()
         start_time = time.time()
         
         for batch_i, (_, imgs, targets) in enumerate(dataloader): # TODO convert to dataloader
-            imgs = imgs.to(device).float() / 255.0
+            branch_controller.train()
+            imgs = imgs.to(device)
             targets = targets.to(device)
             backbone_out = backbone(imgs)
             backbone.layer_outputs = []            
@@ -148,12 +128,13 @@ def train_branch_controller():
             branch_controller.seen += imgs.size(0)
             if batch_i % 100 == 0:
                 print(batch_i,len(dataloader), loss.cpu().detach().numpy())
-        
+ 
         print("Evaluate on ", len(dataloader_valid))
-
+        right_predictions = 0
+        all_predictions = 0
         mse = 0
         for batch_i, (_, imgs, targets) in enumerate(dataloader_valid):
-            branch_controller.train()
+            branch_controller.eval()
             imgs = Variable(imgs.to(device))
             targets = Variable(targets.to(device), requires_grad=False)
 
@@ -163,17 +144,20 @@ def train_branch_controller():
 
             output = torch.argmax(output.cpu(), dim=1).numpy()
             targets = torch.argmax(targets.cpu(), dim=1).numpy()
+            # print(output, targets)
+            right_predictions += np.count_nonzero(targets==output)
+            all_predictions += len(targets)
 
             mse += np.mean(np.square(targets-output))
             
-        print(epoch, "Mean squared error = ", mse)
-        if best_accuracy > mse:
-            best_accuracy = mse
-            best_model = model
-    
-    print("Saving best model with accuracy", best_accuracy)
-    bc_filename = wdir + "bc" + opt.name +".pt"
-    torch.save(best_model, bc_filename)
+        print("Accuracy of Validation = ", 100.0*right_predictions/all_predictions)
+        if best_accuracy < right_predictions/all_predictions:
+            best_accuracy = right_predictions/all_predictions
+            best_model = branch_controller
+
+            print("Saving best model with accuracy", best_accuracy)
+            bc_filename = wdir + "bc" + opt.name +".pt"
+            torch.save(best_model.state_dict(), bc_filename)
 
 
 def train(hyp):

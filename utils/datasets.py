@@ -892,7 +892,6 @@ class ClustersDataset(Dataset):
                 with open(path, 'r') as f:
                     f = f.read().splitlines()
                     f = [x.replace('./', parent) if x.startswith('./') else x for x in f]  # local to global path (coco 2017 format)
-                    f = [x.replace('../coco/', parent) if x.startswith('../coco/') else x for x in f]  # local to global path (coco 2014 format)
 
             elif os.path.isdir(path):  # folder
                 f = glob.iglob(path + os.sep + '*.*')
@@ -960,7 +959,7 @@ class ClustersDataset(Dataset):
                         clusters_cnt[i] += 1
 
             target = torch.argmax(clusters_cnt).item()
-            target = np.zeros(len(self.clusters))
+            target = one_hot_embedding(target, len(self.clusters))
         else:
             print(label_path, "does not exist")
         return img_path, img, target

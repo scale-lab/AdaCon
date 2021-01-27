@@ -3,12 +3,11 @@
 # zip -r coco.zip coco
 # tar -czvf coco.tar.gz coco
 
-# Download labels from Google Drive, accepting presented query
-filename="coco2014labels.zip"
-fileid="1s6-CmF5_SElM28r52P1OUrCcuXZN-SFo"
-curl -c ./cookie -s -L "https://drive.google.com/uc?export=download&id=${fileid}" >/dev/null
-curl -Lb ./cookie "https://drive.google.com/uc?export=download&confirm=$(awk '/download/ {print $NF}' ./cookie)&id=${fileid}" -o ${filename}
-rm ./cookie
+# Download labels (Original files are taken from the authors of https://github.com/ultralytics/yolov3 
+# but we uploaded them to our servers to add some modifications)
+wget http://scale.engin.brown.edu/tools/AdaCon/coco2014labels.zip
+unzip coco2014labels.zip
+rm coco2014labels.zip
 
 echo 'Downloaded Labels'
 echo 'Unzipping Labels ... (takes ~ 30mins)'

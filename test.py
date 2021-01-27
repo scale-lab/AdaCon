@@ -520,7 +520,7 @@ if __name__ == '__main__':
     parser.add_argument('--oracle', action='store_true', help='test the oracle model')
     parser.add_argument('--single', action='store_true', help='test the single branch model')
     parser.add_argument('--multi', action='store_true', help='test the multi branch model')
-    parser.add_argument('--bc-thres', type=float, default=0.1, help='object confidence threshold')
+    parser.add_argument('--bc-thres', type=float, default=0.4, help='object confidence threshold')
     parser.add_argument('--adaptive', action='store_true', help='train adaptive model')
     parser.add_argument('--model', type=str, default='model.args', help='File for the model configurations')
 

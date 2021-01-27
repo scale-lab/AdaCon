@@ -614,7 +614,7 @@ class BranchController(nn.Module):
         x = x.view(-1, self.num_flat_features(x))
         x = F.leaky_relu(self.fc1(x),0.1)
         x = self.fc2(x)
-        return F.sigmoid(x)
+        return F.softmax(x)
 
     def num_flat_features(self, x):
         size = x.size()[1:]  # all dimensions except the batch dimension
