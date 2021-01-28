@@ -31,7 +31,7 @@ Our adaptive object detection model consists of three components: a **backbone**
 
 3. Install the requirements using `pip install -r requirements.txt`
 
-4. Download your dataset. Run `cd data ; ./get_coco2014.sh` or `cd data ; ./get_coco2017.sh` to download COCO 2014 or COCO 2017 respectively. Or follow this [tutorial](https://github.com/ultralytics/yolov3/wiki/Train-Custom-Data) to use your custom dataset. (Note that it is > 20GB dataset so the script can take few hours).
+
 
 5. **Optional** Download the pretrained model. Run `./weights/download_yolov3_weights.sh`
 
@@ -40,10 +40,6 @@ Our adaptive object detection model consists of three components: a **backbone**
 1. Download the pretrained AdaCon Model `./weights/download_adacon_weights.sh`
 
 2. Run Inference using `python detect.py --model model.args --adaptive --source 0`
-
-2. Test our defined [adaptive model](https://github.com/scale-lab/AdaCon/blob/master/model.args) by running `python test.py --model model.args --data data/coco2014.data --adaptive`. The default is multi-branch execution mode. To run in single-branch execution mode, add `--single` to the test command.
-
-3. Train our defined [adaptive model](https://github.com/scale-lab/AdaCon/blob/master/model.args) from scratch by running `python train.py --model model.args --data data/coco2014.data --adaptive`
 
 ## Inference 
 detect.py runs inference on a variety of sources, and save the results to `runs/detect`
@@ -58,26 +54,50 @@ python detect.py --model {MODEL.args}
 ```
 - `MODEL.args` is the path of the desired model description, check [model.args](https://github.com/scale-lab/AdaCon/blob/master/model.args) for an example.
 - `SRC` is the input source. Set it to:
-                                      - `0` for webcam.
-                                      - `file.jpg` for image.
-                                      - `file.mp4` for video.
-                                      - `path` for directory.
+  - `0` for webcam.
+  - `file.jpg` for image.
+  - `file.mp4` for video.
+  - `path` for directory.
 - `adaptive` flag enables running the adaptive AdaCon model, otherwise the static model is executed.
 - `single` flag enables single-branch execution of AdaCon.
 - `multi` flag running multi-branch execution of AdaCon (Default).
 - `THRES` is the confidence threshold for AdaCon's branch controller (Default = 0.4).
 - `IMG_SIZE` is the resolution of the input image.
 
-### Testing
-**Test a static YOLO model** run `python test.py --model model.args --data data/coco2014.data`
+## Prepare your data for Testing and/or Training 
+- To download COCO dataset, run `cd data ; ./get_coco2014.sh` or `cd data ; ./get_coco2017.sh` to download COCO 2014 or COCO 2017 respectively. 
+- To download your custom dataset, follow this [tutorial](https://github.com/ultralytics/yolov3/wiki/Train-Custom-Data).
 
-**Test a dynamic AdaCon model** For single branch execution run `python test.py --model model.args --data data/coco2014.data --adaptive --single`, and for multi branch execution run `python test.py --model model.args --data data/coco2014.data --adaptive --multi`
+## Testing
+test.py runs test on different datasets.
+```
+python test.py --model {MODEL.args}
+                 --data {DATA.data}
+                 [--adaptive]
+                 [--single]
+                 [--multi]
+                 [--bc-thres {THRES}]
+                 [--img-size {IMG_SIZE}]
+```
+- `MODEL.args` is the path of the desired model description, check [model.args](https://github.com/scale-lab/AdaCon/blob/master/model.args) for an example.
+- `DATA.data` is the path of the desired data, use [data/coco2014.data]{https://github.com/scale-lab/AdaCon/blob/master/data/coco2014.data} and [data/coco2017.data]{https://github.com/scale-lab/AdaCon/blob/master/data/coco2017.data} or follow the same format for your custom dataset.
+- `adaptive` flag enables running the adaptive AdaCon model, otherwise the static model is executed.
+- `single` flag enables single-branch execution of AdaCon.
+- `multi` flag running multi-branch execution of AdaCon (Default).
+- `THRES` is the confidence threshold for AdaCon's branch controller (Default = 0.4).
+- `IMG_SIZE` is the resolution of the input image.
 
 ### Training
+train.py runs training for AdaCon model and it also supports training a static model. Our script takes a pretrained backbone (part of the static model), then it trains the branch controller as well as the branches.
 
-**Train a static YOLO model** run `python train.py --model model.args --data data/coco2014.data`
-
-**Train a dynamic AdaCon model** run `python train.py --model model.args --data data/coco2014.data --adaptive`
+```
+python train.py --model {MODEL.args}
+                 --data {DATA.data}
+                 [--adaptive]
+```
+- `MODEL.args` is the path of the desired model description, check [model.args](https://github.com/scale-lab/AdaCon/blob/master/model.args) for an example.
+- `DATA.data` is the path of the desired data, use [data/coco2014.data]{https://github.com/scale-lab/AdaCon/blob/master/data/coco2014.data} and [data/coco2017.data]{https://github.com/scale-lab/AdaCon/blob/master/data/coco2017.data} or follow the same format for your custom dataset.
+- `adaptive` flag enables training the adaptive AdaCon model, otherwise the static model is trained.
 
 ## Citation
 
