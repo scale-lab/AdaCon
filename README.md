@@ -35,29 +35,49 @@ Our adaptive object detection model consists of three components: a **backbone**
 
 5. **Optional** Download the pretrained model. Run `./weights/download_yolov3_weights.sh`
 
-## Quick start demo on COCO dataset
+## Quick Start Demo
 
-1. Make sure to download the pretrained models by running `cd weights ; ./download_yolov3_weights.sh`.
+1. Download the pretrained AdaCon Model `./weights/download_adacon_weights.sh`
+
+2. Run Inference using `python detect.py --model model.args --adaptive --source 0`
 
 2. Test our defined [adaptive model](https://github.com/scale-lab/AdaCon/blob/master/model.args) by running `python test.py --model model.args --data data/coco2014.data --adaptive`. The default is multi-branch execution mode. To run in single-branch execution mode, add `--single` to the test command.
 
 3. Train our defined [adaptive model](https://github.com/scale-lab/AdaCon/blob/master/model.args) from scratch by running `python train.py --model model.args --data data/coco2014.data --adaptive`
 
-## Try it on your data
+## Inference 
+detect.py runs inference on a variety of sources, and save the results to `runs/detect`
+```
+python detect.py --model {MODEL.args}
+                 --source {SRC}
+                 [--adaptive]
+                 [--single]
+                 [--multi]
+                 [--bc-thres {THRES}]
+                 [--img-size {IMG_SIZE}]
+```
+- `MODEL.args` is the path of the desired model description, check [model.args](https://github.com/scale-lab/AdaCon/blob/master/model.args) for an example.
+- `SRC` is the input source. Set it to:
+                                      - `0` for webcam.
+                                      - `file.jpg` for image.
+                                      - `file.mp4` for video.
+                                      - `path` for directory.
+- `adaptive` flag enables running the adaptive AdaCon model, otherwise the static model is executed.
+- `single` flag enables single-branch execution of AdaCon.
+- `multi` flag running multi-branch execution of AdaCon (Default).
+- `THRES` is the confidence threshold for AdaCon's branch controller (Default = 0.4).
+- `IMG_SIZE` is the resolution of the input image.
 
-1. Cluster your data: run `python cluster.py --data data/coco2014.data --num_clusters 4`
-2. Define your model architecture. Example provided in [model.args](https://github.com/scale-lab/AdaCon/blob/master/model.args).
+### Testing
+**Test a static YOLO model** run `python test.py --model model.args --data data/coco2014.data`
+
+**Test a dynamic AdaCon model** For single branch execution run `python test.py --model model.args --data data/coco2014.data --adaptive --single`, and for multi branch execution run `python test.py --model model.args --data data/coco2014.data --adaptive --multi`
 
 ### Training
 
 **Train a static YOLO model** run `python train.py --model model.args --data data/coco2014.data`
 
 **Train a dynamic AdaCon model** run `python train.py --model model.args --data data/coco2014.data --adaptive`
-
-### Testing
-**Test a static YOLO model** run `python test.py --model model.args --data data/coco2014.data`
-
-**Test a dynamic AdaCon model** For single branch execution run `python test.py --model model.args --data data/coco2014.data --adaptive --single`, and for multi branch execution run `python test.py --model model.args --data data/coco2014.data --adaptive --multi`
 
 ## Citation
 
