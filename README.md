@@ -34,7 +34,9 @@ Our adaptive object detection model consists of three components: a **backbone**
 ## Quick Start Demo
 
 1. Download the pretrained AdaCon Model `./weights/download_adacon_weights.sh`
+
 2. **Optional** Download the pretrained YOLO models. Run `./weights/download_yolov3_weights.sh`
+
 3. Run Inference using `python detect.py --model model.args --adaptive --source 0`
 
 ## Inference 
@@ -76,7 +78,7 @@ python test.py --model {MODEL.args}
                  [--img-size {IMG_SIZE}]
 ```
 - `MODEL.args` is the path of the desired model description, check [model.args](https://github.com/scale-lab/AdaCon/blob/master/model.args) for an example.
-- `DATA.data` is the path of the desired data, use [data/coco2014.data]{https://github.com/scale-lab/AdaCon/blob/master/data/coco2014.data} and [data/coco2017.data]{https://github.com/scale-lab/AdaCon/blob/master/data/coco2017.data} or follow the same format for your custom dataset.
+- `DATA.data` is the path of the desired data, use [data/coco2014.data](https://github.com/scale-lab/AdaCon/blob/master/data/coco2014.data) and [data/coco2017.data](https://github.com/scale-lab/AdaCon/blob/master/data/coco2017.data) or follow the same format for your custom dataset.
 - `adaptive` flag enables running the adaptive AdaCon model, otherwise the static model is executed.
 - `single` flag enables single-branch execution of AdaCon.
 - `multi` flag running multi-branch execution of AdaCon (Default).
@@ -92,7 +94,7 @@ python train.py --model {MODEL.args}
                  [--adaptive]
 ```
 - `MODEL.args` is the path of the desired model description, check [model.args](https://github.com/scale-lab/AdaCon/blob/master/model.args) for an example.
-- `DATA.data` is the path of the desired data, use [data/coco2014.data]{https://github.com/scale-lab/AdaCon/blob/master/data/coco2014.data} and [data/coco2017.data]{https://github.com/scale-lab/AdaCon/blob/master/data/coco2017.data} or follow the same format for your custom dataset.
+- `DATA.data` is the path of the desired data, use [data/coco2014.data](https://github.com/scale-lab/AdaCon/blob/master/data/coco2014.data) and [data/coco2017.data](https://github.com/scale-lab/AdaCon/blob/master/data/coco2017.data) or follow the same format for your custom dataset.
 - `adaptive` flag enables training the adaptive AdaCon model, otherwise the static model is trained.
 
 ## Citation
