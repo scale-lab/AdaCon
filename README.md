@@ -31,15 +31,11 @@ Our adaptive object detection model consists of three components: a **backbone**
 
 3. Install the requirements using `pip install -r requirements.txt`
 
-
-
-5. **Optional** Download the pretrained model. Run `./weights/download_yolov3_weights.sh`
-
 ## Quick Start Demo
 
 1. Download the pretrained AdaCon Model `./weights/download_adacon_weights.sh`
-
-2. Run Inference using `python detect.py --model model.args --adaptive --source 0`
+2. **Optional** Download the pretrained YOLO models. Run `./weights/download_yolov3_weights.sh`
+3. Run Inference using `python detect.py --model model.args --adaptive --source 0`
 
 ## Inference 
 detect.py runs inference on a variety of sources, and save the results to `runs/detect`
