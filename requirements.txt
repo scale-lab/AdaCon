@@ -17,7 +17,7 @@ networkx
 sklearn 
 
 # coco ----------------------------------------
-# pycocotools>=2.0
+pycocotools>=2.0
 
 # export --------------------------------------
 # packaging  # for coremltools

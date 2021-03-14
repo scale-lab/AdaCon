@@ -9,7 +9,7 @@ backbone_cfg=cfg/adacon_backbone.cfg
 backbone_weights=weights/yolov3.weights
 
 branch_controller_cfg=cfg/adacon_branch_controller.cfg
-branch_controller_weights=weights/bc.pt
+branch_controller_weights=weights/adacon_branch_controller.pt
 branches_cfg=cfg/adacon_branch0v0.cfg cfg/adacon_branch1v0.cfg cfg/adacon_branch2v0.cfg cfg/adacon_branch3v0.cfg
 branches_weights=weights/adacon_branch0v0.pt weights/adacon_branch1v0.pt weights/adacon_branch2v0.pt weights/adacon_branch3v0.pt
 
