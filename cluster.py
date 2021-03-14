@@ -83,7 +83,7 @@ def create_graph(matrix,pruning_threshold):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--common_thresh", type=int, default=80, help="Number of classes")
+    parser.add_argument("--common_classes", type=int, default=65, help="Number of common classes to determine the class as common classes")
     parser.add_argument("--num_clusters", type=int, default=4, help="Number of object clusters")
     parser.add_argument("--output", type=str, default="cluster_gen.data", help="Path to output the clusters")
     parser.add_argument("--data", type=str, default="data/coco2014.data", help="path to data config file")
@@ -99,6 +99,7 @@ if __name__ == "__main__":
     classes_names = load_classes(data_config['names'])
 
     num_clusters = opt.num_clusters
+    dir_name = os.path.dirname(train_path)
 
     ##### Compute the frequency based adjacency Matrix #####
     if not os.path.exists(opt.cooccurance):
@@ -108,8 +109,11 @@ if __name__ == "__main__":
         # Loop on Images Labels files
         f=open(train_path, "r")
         train_paths = f.readlines()
-        train_paths = [path.rstrip().replace("images", "labels").replace(".png", ".txt").replace(".jpg", ".txt")
-                for path in train_paths]
+        train_paths = [
+            os.path.join(dir_name, path.rstrip().replace("./", ""). \
+                replace("images", "labels").replace(".png", ".txt").replace(".jpg", ".txt"))
+            for path in train_paths
+        ]
 
         for filename in train_paths:
             if filename.endswith(".txt"):
@@ -147,7 +151,7 @@ if __name__ == "__main__":
     common_count = 0
     common_classes = []
     for i in range(len(temp)):
-        if np.sum(temp[i]) >= opt.common_thresh:
+        if np.sum(temp[i]) >= opt.common_classes:
             common_classes.append(i)
             common_count += 1
 
@@ -200,7 +204,8 @@ if __name__ == "__main__":
     nx.draw_networkx_nodes(graph,  pos=pos, node_size=700, node_color=colors,cmap=cm.cool)
     nx.draw_networkx_labels(graph,  pos=pos, labels=labels, font_size=12)
 
-    plt.show()
+    fig_name = "cluster_" + str(opt.num_clusters) + "_" + str(opt.common_classes) + ".png"
+    plt.savefig(fig_name)
 
     ## Add common classes to clusters list
     for idx, cluster in enumerate(clusters):

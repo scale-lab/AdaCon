@@ -1,30 +1,52 @@
 import os
 import sys
+import argparse
+from utils.parse_config import parse_data_cfg
 
-list_path = "data/coco/5k.txt"
-output_file_path = "data/coco/5k_modified.txt"
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data", type=str, default="data/coco2014.data", help="path to data config file")
+    parser.add_argument("--output_name", type=str, default="modified", help="name of output modified files")
 
-shapes_path = "data/coco/5k.shapes"
-output_file_path = "data/coco/5k_modified.shapes"
+    opt = parser.parse_args()
 
-img_files = None
-with open(list_path, "r") as file:
-    img_files = file.readlines()
+    data_config = parse_data_cfg(opt.data)
+    train_path = data_config["train"]
+    valid_path = data_config["valid"]
 
-label_files = [
-    path.replace("images", "labels").replace(".png", ".txt").replace(".jpg", ".txt")
-    for path in img_files
-]
+    dir_name = os.path.dirname(train_path)
 
+    for data_path in [train_path, valid_path]:
+        shapes_path = data_path.replace(".txt", ".shapes")
 
-files_to_keep = []
-count = 0
-for i, f in enumerate(img_files):
-    f = f.rstrip()
-    if os.path.exists(f):
-        files_to_keep.append(img_files[i])
-    else:
-        count += 1
-        print(count, f)
-with open(output_file_path, 'w') as filehandle:
-    filehandle.writelines("%s\n" % img.rstrip() for img in files_to_keep)
+        img_files = None
+        with open(data_path, "r") as file:
+            img_files = file.readlines()
+
+        label_files = [
+            os.path.join(dir_name, path.rstrip().replace("./", ""). \
+                replace("images", "labels").replace(".png", ".txt").replace(".jpg", ".txt"))
+            for path in img_files
+        ]
+
+        shapes = []
+        with open(shapes_path, "r") as file:
+            shapes = file.readlines()
+        
+        files_to_keep = []
+        shapes_to_keep = []
+        count = 0
+        for i, f in enumerate(label_files):
+            f = f.rstrip()
+            if os.path.exists(f):
+                files_to_keep.append(img_files[i])
+                shapes_to_keep.append(shapes[i])
+            else:
+                count += 1
+        print(f'Removed {count} out of {len(label_files)}')
+
+        with open(data_path, 'w') as filehandle:
+            filehandle.writelines("%s\n" % img.rstrip() for img in files_to_keep)
+
+        with open(shapes_path, 'w') as filehandle:
+            filehandle.writelines("%s\n" % shape.rstrip() for shape in shapes_to_keep)
