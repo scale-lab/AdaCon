@@ -65,7 +65,7 @@ def _get_common_classes(adjacency_matrix):
 
     common_classes = []
     for i in range(len(temp)):
-        if np.sum(temp[i]) >= opt.common_classes:
+        if np.sum(temp[i]) >= opt.common_classes_thres:
             common_classes.append(i)
     return common_classes
 
@@ -104,8 +104,8 @@ def _cluster(positions, num_of_clusters):
         classes_dict[i] = key
 
     positions = [p for p in positions.values()]
-    kmeans = AgglomerativeClustering(n_clusters=num_of_clusters).fit(positions)
-    labels = kmeans.labels_
+    ag_clusters = AgglomerativeClustering(n_clusters=num_of_clusters).fit(positions)
+    labels = ag_clusters.labels_
     clusters = []
     for c in range(num_of_clusters):
         clusters.append([classes_dict[i] for i in range(len(labels)) if labels[i] == c])
@@ -140,27 +140,25 @@ def _create_graph(adjacency_matrix, pruning_threshold, itterations):
     return n_positions, s_matrix
 
 def _evaluate_clustering(valid_path, common_classes, clusters_list):
-    dataset = LoadImagesAndLabels(valid_path, 416, 8, rect=False, single_cls=False, pad=0.5)
-    dloader = DataLoader(dataset,
-                        batch_size=8,
-                        num_workers=1,
-                        pin_memory=True,
-                        collate_fn=dataset.collate_fn)
+    dataset = LoadImagesAndLabels(valid_path, 416, 1, rect=False, single_cls=False, pad=0.5)
+    dloader = DataLoader(dataset, batch_size=1, collate_fn=dataset.collate_fn) # Batch size has to be 1 here
 
     neglected_objects = 0
     all_objects = 1
 
-    for batch_i, (imgs, targets, paths, shapes) in enumerate(tqdm(dloader, desc="Evaluating Clusters")):
+    for batch_i, (_, targets, _, _) in enumerate(tqdm(dloader, desc="Evaluating Clusters")):
         ts = targets[:, 1].tolist()
         extras = 0
         cluster_cnt = np.zeros(len(clusters_list))
         for t in ts:
+            if t in common_classes:
+                extras += 1
+                continue
             for i, cluster in enumerate(clusters_list):
-                if t in cluster and t not in common_classes:
+                if t in cluster:
                     cluster_cnt[i] += 1
-                if t in common_classes:
-                    extras += 1
-        # dominent_clus = [idx for idx, val in enumerate(cluster_cnt) if val != 0] 
+                    break
+                
         dominent_clus = [np.argmax(cluster_cnt)] 
         neglected_objects += np.sum(cluster_cnt) - np.sum(cluster_cnt[dominent_clus])
         all_objects += np.sum(cluster_cnt) + extras
@@ -190,12 +188,12 @@ def _plot_graph(s_adjmatrix, positions, clusters, classes_ids, common_classes, c
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--common_classes", type=int, default=65, help="Number of common classes to determine the class as common classes")
+    parser.add_argument("--common_classes_thres", type=int, default=55, help="Number of common classes to determine the class as common classes")
     parser.add_argument("--num_clusters", type=int, default=4, help="Number of object clusters")
-    parser.add_argument("--output", type=str, default="cluster_gen.data", help="Path to output the clusters")
-    parser.add_argument("--data", type=str, default="data/coco2014.data", help="path to data config file")
-    parser.add_argument("--pruning_threshold", type=float, default=0.01, help="Pruning threshold for edge weights")
+    parser.add_argument("--data", type=str, default="data/coco2014.data", help="Path to data config file")
+    parser.add_argument("--pruning_threshold", type=float, default=0.05, help="Pruning threshold for edge weights")
     parser.add_argument("--co-occurance_out", type=str, default="co-occurence_adjacency_matrix.csv", help="Use if you already have the co-occurance matrix from previous runs")
+    parser.add_argument('--eval', action='store_true', help='Evaluate the clustering')
 
     opt = parser.parse_args()
 
@@ -213,7 +211,8 @@ if __name__ == "__main__":
                                             num_classes=num_classes, 
                                             co_occurance_out_file=opt.co_occurance_out)
 
-    # chosen_classes = [0, 2,3, 5, 7,9,12, 18, 17, 19, 26,  41, 42, 43, 44, 45, 48, 57, 63, 62, 64,65,66,68,69, 71, 73]
+    # chosen_classes = [0, 2, 3, 5, 7, 9, 12, 18, 17, 19, 26, 41, 42, 43, 44, 
+    #                   45, 48, 57, 63, 62, 64, 65, 66, 68, 69, 71, 73]
     chosen_classes = np.arange(80)
     classes_names = np.asarray(classes_names)
 
@@ -224,6 +223,7 @@ if __name__ == "__main__":
 
     # Get Common Classes
     common_classes = _get_common_classes(adjacency_matrix)
+    print("Number of common_classes = ", len(common_classes))
     classes_idx_dict, adjacency_matrix = _remove_common_classes(adjacency_matrix, 
                                                                 common_classes=common_classes,
                                                                 num_classes=num_classes)
@@ -232,28 +232,38 @@ if __name__ == "__main__":
     prob_adjacency_matrix = _get_probability_adjacency_matrix(adjacency_matrix)
             
     # Convert the probability based adjacency matrix to a graph
-    n_positions, s_matrix = _create_graph(prob_adjacency_matrix, pruning_threshold=opt.pruning_threshold, itterations=40)
+    n_positions, s_matrix = _create_graph(prob_adjacency_matrix, pruning_threshold=opt.pruning_threshold, itterations=200)
 
     # Cluster the classes based on their positions in the graph
     clusters = _cluster(n_positions, num_clusters)
 
     # Plot the graph with the clustered classes
-    fig_name = "cluster_" + str(opt.num_clusters) + "_" + str(opt.common_classes) + ".png"
-    _plot_graph(s_matrix, n_positions, clusters, chosen_classes, common_classes, classes_names, fig_name)
+
+    if not os.path.exists("output"):
+        os.makedirs("output")
+    if not os.path.exists("output/clustering"):
+        os.makedirs("output/clustering")
+
+    fig_name = "output/clustering/cluster_" + str(opt.num_clusters) + "_" + str(opt.common_classes_thres) 
+    _plot_graph(s_matrix, n_positions, clusters, chosen_classes, common_classes, classes_names, fig_name + ".png")
 
     ## Add common classes to clusters list and save the clusters file
     for idx, cluster in enumerate(clusters):
         clusters[idx] = [classes_idx_dict[i] for i in cluster]
         clusters[idx].extend(common_classes)
     
-    with open(opt.output, 'w') as f:
+    with open(fig_name + ".data", 'w') as f:
         for cluster in clusters:
-            for obj in cluster:
-                f.write("%s,"%(obj))
+            for i, obj in enumerate(cluster):
+                if i == 0:
+                    f.write("%s"%(obj))
+                else:
+                    f.write(",%s"%(obj))
             f.write("\n")
 
     ## Evaluate the clustering by checking the branch miss rate
-    neglected, all_obj = _evaluate_clustering(valid_path, common_classes, clusters)
-    print(neglected/all_obj*100, "%")
+    if opt.eval:
+        neglected, all_obj = _evaluate_clustering(valid_path, common_classes, clusters)
+        print(f'Separability Error = {neglected/all_obj*100}%')
 
 
