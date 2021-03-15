@@ -14,3 +14,4 @@ branches_cfg=cfg/adacon_branch0v0.cfg cfg/adacon_branch1v0.cfg cfg/adacon_branch
 branches_weights=weights/adacon_branch0v0.pt weights/adacon_branch1v0.pt weights/adacon_branch2v0.pt weights/adacon_branch3v0.pt
 
 clusters=clusters.data
+num_classes=80

@@ -86,7 +86,7 @@ def create_modules(module_defs):
             print("ERRRRRRRROR ", module_def["type"])
         # Register module list and number of output filters
         module_list.append(modules)
-        print(module_list[-1])
+        # print(module_list[-1])
         output_filters.append(filters)
 
     return hyperparams, module_list
