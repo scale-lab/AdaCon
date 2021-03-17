@@ -238,6 +238,155 @@ def test(cfg,
     print("AVG mAP", np.mean(maps))
     return (mp, mr, map, mf1, *(loss.cpu() / len(dataloader)).tolist()), maps
 
+def test_branch(cfg,
+         data,
+         weights=None,
+         batch_size=16,
+         imgsz=416,
+         conf_thres=0.001,
+         iou_thres=0.6,  # for nms
+         save_json=False,
+         single_cls=False,
+         augment=False,
+         device=None,
+         model=None,
+         dataloader=None,
+         multi_label=True,
+         backbone=None,
+         clusters=None,
+         class_to_cluster_list=None,
+         cluster_idx=0):
+
+    # Initialize/load model and set device
+    if model is None:
+        is_training = False
+        device = torch_utils.select_device(device, batch_size=batch_size)
+        verbose = True
+
+        # Remove previous
+        for f in glob.glob('test_batch*.jpg'):
+            os.remove(f)
+
+        # Initialize model
+        model = Darknet(cfg, imgsz)
+
+        # Load weights
+        attempt_download(weights)
+        if weights.endswith('.pt'):  # pytorch format
+            model.load_state_dict(torch.load(weights, map_location=device)['model'])
+        else:  # darknet format
+            load_darknet_weights(model, weights)
+
+        # Fuse
+        model.fuse()
+        model.to(device)
+
+        if device.type != 'cpu' and torch.cuda.device_count() > 1:
+            model = nn.DataParallel(model)
+    else:  # called by train.py
+        is_training = True
+        device = next(model.parameters()).device  # get model device
+        verbose = False
+
+    if backbone is not None:
+        backbone.eval()
+        backbone.to(device)
+    
+    # Configure run
+    data = parse_data_cfg(data)
+    nc = 1 if single_cls else int(data['classes'])  # number of classes
+    path = data['valid']  # path to test images
+    names = load_classes(data['names'])  # class names
+    iouv = torch.linspace(0.5, 0.95, 10).to(device)  # iou vector for mAP@0.5:0.95
+    iouv = iouv[0].view(1)  # comment for mAP@0.5:0.95
+    niou = iouv.numel()
+
+    # Dataloader
+    if dataloader is None:
+        dataset = LoadImagesAndLabels(path, imgsz, batch_size, rect=False, single_cls=single_cls, pad=0.5)
+        batch_size = min(batch_size, len(dataset))
+        dataloader = DataLoader(dataset,
+                                batch_size=batch_size,
+                                num_workers=min([os.cpu_count(), batch_size if batch_size > 1 else 0, 8]),
+                                pin_memory=True,
+                                collate_fn=dataset.collate_fn)
+
+    seen = 0
+    model.eval()
+
+    coco91class = coco80_to_coco91_class()
+    t0, t1 = 0., 0.
+    loss = torch.zeros(3, device=device)
+    jdict, stats = [], []
+
+    s = ('%20s' + '%10s' * 6) % ('Class', 'Images', 'Targets', 'P', 'R', 'mAP@0.5', 'F1')
+    for batch_i, (imgs, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
+        imgs = imgs.to(device).float() / 255.0  # uint8 to float32, 0 - 255 to 0.0 - 1.0
+        targets = targets.to(device)
+        nb, _, height, width = imgs.shape  # batch size, channels, height, width
+        whwh = torch.Tensor([width, height, width, height]).to(device)
+
+        # Disable gradients
+        with torch.no_grad():
+            # Run model
+            t = torch_utils.time_synchronized()
+            backbone_out = backbone(imgs)
+            inf_out, train_out = model(backbone_out, augment=augment,out=backbone.layer_outputs)  # inference and training outputs
+            backbone.layer_outputs = []
+            t0 += torch_utils.time_synchronized() - t
+
+            # Compute loss
+            if is_training:  # if model has loss hyperparameters
+
+                modified_targets = map_labels_to_cluster(targets, clusters, class_to_cluster_list, cluster_idx, device)
+                if modified_targets.shape[0] == 0:
+                    continue
+                loss += compute_loss(train_out, modified_targets, model)[1][:3]  # GIoU, obj, cls
+
+            full_detection = torch.zeros(inf_out.shape[0],inf_out.shape[1], nc+5, device=device)
+            full_detection[:, :, 0:5] = inf_out[:, :, 0:5]
+            new_indices = [5 + k for k in clusters[cluster_idx]]
+            full_detection[:, :, new_indices] = inf_out[:, :, 5:]
+            inf_out = full_detection
+
+            # Run NMS
+            t = torch_utils.time_synchronized()
+            outputs = non_max_suppression(inf_out, conf_thres=conf_thres, iou_thres=iou_thres, multi_label=multi_label)
+            t1 += torch_utils.time_synchronized() - t
+
+        # Statistics per image
+        stat_per_image, seen = _get_stats_per_image(outputs, imgs, targets, paths, shapes, 
+                                            height, width, seen, jdict, save_json, 
+                                            coco91class, niou, iouv, whwh, device)
+        stats.extend(stat_per_image)
+
+    # Compute overall statistics
+    nt, p, r, f1, mp, mr, map, mf1, ap, ap_class = _get_overall_stats(stats, nc, niou)
+
+    # Print results
+    pf = '%20s' + '%10.3g' * 6  # print format
+
+    # Print results per class
+    if verbose and nc > 1 and len(stats):
+        for i, c in enumerate(ap_class):
+            print(pf % (names[c], seen, nt[c], p[i], r[i], ap[i], f1[i]))
+
+    # Print speeds
+    if verbose or save_json:
+        t = tuple(x / seen * 1E3 for x in (t0, t1, t0 + t1)) + (imgsz, imgsz, batch_size)  # tuple
+        print('Speed: %.1f/%.1f/%.1f ms inference/NMS/total per %gx%g image at batch-size %g' % t)
+    
+    # Compute pycoco stats if coco dataset is used
+    if save_json and map and len(jdict):
+        _get_pycoco_stats(jdict, dataloader)
+
+    # Return results
+    maps = np.zeros(nc) + map
+    for i, c in enumerate(ap_class):
+        maps[c] = ap[i]
+    print("AVG mAP", np.mean(maps))
+    return (mp, mr, map, mf1, *(loss.cpu() / len(dataloader)).tolist()), maps
+
 def test_adacon(model_args, 
          data,
          batch_size=1,

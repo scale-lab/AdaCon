@@ -5,7 +5,7 @@ import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.tensorboard import SummaryWriter
 
-from test import test  # import test.py to get mAP after each epoch
+from test import test, test_branch  # import test.py to get mAP after each epoch
 from models import *
 from utils.datasets import *
 from utils.utils import *
@@ -449,19 +449,19 @@ def train(hyp):
         final_epoch = epoch + 1 == epochs
         if not opt.notest or final_epoch:  # Calculate mAP
             is_coco = any([x in data for x in ['coco.data', 'coco2014.data', 'coco2017.data']]) and model.nc == 80
-            results, maps = test(cfg,
-                                      data,
-                                      batch_size=batch_size,
-                                      imgsz=imgsz_test,
-                                      model=ema.ema,
-                                      save_json=final_epoch and is_coco,
-                                      single_cls=opt.single_cls,
-                                      dataloader=testloader,
-                                      multi_label=ni > n_burn, 
-                                      clusters=clusters,
-                                      class_to_cluster_list=class_to_cluster_list,
-                                      cluster_idx=opt.cluster_idx,
-                                      backbone=backbone)
+            results, maps = test_branch(cfg,
+                                 data,
+                                 batch_size=batch_size,
+                                 imgsz=imgsz_test,
+                                 model=ema.ema,
+                                 save_json=final_epoch and is_coco,
+                                 single_cls=opt.single_cls,
+                                 dataloader=testloader,
+                                 multi_label=ni > n_burn, 
+                                 clusters=clusters,
+                                 class_to_cluster_list=class_to_cluster_list,
+                                 cluster_idx=opt.cluster_idx,
+                                 backbone=backbone)
 
         # Write
         with open(results_file, 'a') as f:
