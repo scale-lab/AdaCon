@@ -229,7 +229,7 @@ def train(hyp):
 
     start_epoch = 0
     best_fitness = 0.0
-    attempt_download(weights)
+    # attempt_download(weights)
     if weights.endswith('.pt'):  # pytorch format
         # possible weights are '*.pt', 'yolov3-spp.pt', 'yolov3-tiny.pt' etc.
         ckpt = torch.load(weights, map_location=device)
@@ -598,7 +598,7 @@ if __name__ == '__main__':
         if opt.branches_weights:
             opt.weights = opt.branches_weights[opt.cluster_idx]
         else:
-            opt.weights = None
+            opt.weights = ""
         print('Start Tensorboard with "tensorboard --logdir=runs", view at http://localhost:6006/')
         tb_writer = SummaryWriter(comment=opt.name)
         train(hyp)  # train normally
