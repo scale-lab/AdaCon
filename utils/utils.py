@@ -351,9 +351,7 @@ def smooth_BCE(eps=0.1):  # https://github.com/ultralytics/yolov3/issues/238#iss
     return 1.0 - 0.5 * eps, 0.5 * eps
 
 
-def compute_loss(p, targets, model, num_classes=None):  # predictions, targets, model
-    if not num_classes:
-        num_classes = model.nc
+def compute_loss(p, targets, model):  # predictions, targets, model
     ft = torch.cuda.FloatTensor if p[0].is_cuda else torch.Tensor
     lcls, lbox, lobj = ft([0]), ft([0]), ft([0])
     tcls, tbox, indices, anchors = build_targets(p, targets, model)  # targets
@@ -394,7 +392,7 @@ def compute_loss(p, targets, model, num_classes=None):  # predictions, targets, 
             tobj[b, a, gj, gi] = (1.0 - model.gr) + model.gr * giou.detach().clamp(0).type(tobj.dtype)  # giou ratio
 
             # Class
-            if num_classes > 1:  # cls loss (only if multiple classes)
+            if model.nc > 1:  # cls loss (only if multiple classes)
                 t = torch.full_like(ps[:, 5:], cn)  # targets
                 t[range(nb), tcls[i]] = cp
                 lcls += BCEcls(ps[:, 5:], t)  # BCE
@@ -413,7 +411,7 @@ def compute_loss(p, targets, model, num_classes=None):  # predictions, targets, 
         g = 3.0  # loss gain
         lobj *= g / bs
         if nt:
-            lcls *= g / nt / num_classes
+            lcls *= g / nt / model.nc
             lbox *= g / nt
 
     loss = lbox + lobj + lcls
@@ -429,8 +427,8 @@ def build_targets(p, targets, model):
 
     style = None
     multi_gpu = type(model) in (nn.parallel.DataParallel, nn.parallel.DistributedDataParallel)
-    for i, j in enumerate(model.branches[0].yolo_layers):
-        anchors = model.module.module_list[j].anchor_vec if multi_gpu else model.branches[0].module_list[j].anchor_vec
+    for i, j in enumerate(model.yolo_layers):
+        anchors = model.module.module_list[j].anchor_vec if multi_gpu else model.module_list[j].anchor_vec
         gain[2:] = torch.tensor(p[i].shape)[[3, 2, 3, 2]]  # xyxy gain
         na = anchors.shape[0]  # number of anchors
         at = torch.arange(na).view(na, 1).repeat(1, nt)  # anchor tensor, same as .repeat_interleave(nt)
@@ -583,7 +581,7 @@ def strip_optimizer(f='weights/best.pt'):  # from utils.utils import *; strip_op
     # Strip optimizer from *.pt files for lighter files (reduced by 2/3 size)
     x = torch.load(f, map_location=torch.device('cpu'))
     x['optimizer'] = None
-    print('Optimizer stripped from ', f)
+    print('Optimizer stripped from %s' % f)
     torch.save(x, f)
 
 
