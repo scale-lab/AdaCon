@@ -98,6 +98,10 @@ if __name__ == "__main__":
     for i, l in enumerate(search_space):
         if i < 6:
             param.append(l[1])
+            if num_branches < 4:
+                param.append(l[0])
+            else:
+                param.append(l[1])      
         else:
             param.append(l[0])
 
