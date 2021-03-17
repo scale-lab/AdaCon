@@ -4,6 +4,7 @@ from utils.parse_config import *
 import utils.extras as extras
 from models import Darknet, Backbone, BranchController
 from enum import Enum
+import numpy as np
 
 class AdaConMode(Enum):
     multi_branch = 1
@@ -67,7 +68,7 @@ class AdaConYolo(nn.Module):
 
         self.backbone.layer_outputs = []
         
-        return preds, self.branch_controller(back_out)
+        return preds, None
 
     def _forward_testing(self, x):
         back_out = self.backbone(x)
@@ -98,32 +99,20 @@ class AdaConYolo(nn.Module):
     
         return torch.cat(preds, 1)
 
-    def backward(self, losses):
-        for module in self.branches:
-            for param in module.parameters():
-                param.require_grad = False
+    # def backward(self, losses):
+    #     def _max(losses):
+    #         max_loss = 0
+    #         for i in range(1,len(losses)):
+    #             if losses[i] > losses[max_loss]:
+    #                 max_loss = i
+    #         return max_loss 
+    #     # i = np.argmax(losses)
+    #     with torch.no_grad():
+    #         i = _max(losses)
+    #     # print(losses, i)
 
-        mean_losses = sum(losses)/len(losses)
-        mean_losses.backward(retain_graph=True)
-
-        for param in self.backbone.parameters():
-                param.require_grad = False
-
-        for i, loss in enumerate(losses):
-            for param in self.branches[i].parameters():
-                param.require_grad = True
-
-            if i < len(losses) - 1:
-                loss.backward(retain_graph=True)
-
-                for param in self.branches[i].parameters():
-                    param.require_grad = False
-            else:
-                loss.backward()
-        
-        for param in self.backbone.parameters():
-                param.require_grad = True
-
-        for module in self.branches:
-            for param in module.parameters():
-                param.require_grad = True
+    #     # for i, loss in enumerate(losses):
+    #     #     if i < len(losses) - 1:
+    #     losses[i].backward()
+    #     # else:
+    #     #     loss.backward(retain_graph=False)
