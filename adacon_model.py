@@ -28,10 +28,12 @@ class AdaConYolo(nn.Module):
         backbone_weights = model_args['backbone_weights']
 
         branch_controller_cfg = model_args['branch_controller_cfg']
+        branch_controller_weights = None
         if 'branch_controller_weights' in model_args:
             branch_controller_weights = model_args['branch_controller_weights']
 
         branches_cfg = model_args['branches_cfg']
+        branches_weights = None
         if 'branches_weights' in model_args:
             branches_weights = [check_file(f) for f in model_args['branches_weights']]
 
@@ -48,38 +50,80 @@ class AdaConYolo(nn.Module):
         self.branch_controller = BranchController(branch_controller_cfg, len(self.clusters))
         if branch_controller_weights:
             self.branch_controller.load_state_dict(torch.load(branch_controller_weights))
-    
+
     def forward(self, x):
         if self.training:
-            back_out = self.backbone(x)
-            preds = []
-            for branch in self.branches:
-                p = branch(back_out, out=self.backbone.layer_outputs)
-                preds.append(p)
-            self.backbone.layer_outputs = []
+            return self._forward_training(x)
         else:
-            back_out = self.backbone(x)
+            return self._forward_testing(x)
 
-            if self.exec_mode == AdaConMode.single_branch.value:
-                active_branches = [torch.argmax(self.branch_controller(back_out, []))]
-            
-            elif self.exec_mode == AdaConMode.multi_branch.value:
-                class_out = self.branch_controller(back_out, [])
-                active_branches = torch.where(class_out > self.multi_branch_thres)[1]
+    def _forward_training(self, x):
+        back_out = self.backbone(x)
+        preds = []
+        for cluster_idx, branch in enumerate(self.branches):
+            branch_out = branch(back_out, out=self.backbone.layer_outputs)
 
-            preds = []
-            for cluster_idx, branch in enumerate(self.branches):
-                if cluster_idx not in active_branches:
-                    continue
-                branch_out, _ = branch(back_out, out=self.backbone.layer_outputs)
+            preds.append(branch_out)
 
-                full_detection = torch.zeros(branch_out.shape[0], branch_out.shape[1], self.num_classes+5, device=x.get_device())
-                full_detection[:, :, 0:5] = branch_out[:, :, 0:5]
-
-                new_indices = [5 + k for k in self.clusters[cluster_idx]]
-                full_detection[:, :, new_indices] = branch_out[:, :, 5:]
-                preds.append(full_detection)
-                
-            self.backbone.layer_outputs = []
+        self.backbone.layer_outputs = []
         
+        return preds, self.branch_controller(back_out)
+
+    def _forward_testing(self, x):
+        back_out = self.backbone(x)
+
+        if self.exec_mode == AdaConMode.single_branch.value:
+            active_branches = [torch.argmax(self.branch_controller(back_out, []))]
+        
+        elif self.exec_mode == AdaConMode.multi_branch.value:
+            class_out = self.branch_controller(back_out, [])
+            active_branches = torch.where(class_out > self.multi_branch_thres)[1]
+        elif self.exec_mode == AdaConMode.oracle.value:
+            active_branches = np.arange(len(self.branches))
+
+        preds = []
+        for cluster_idx, branch in enumerate(self.branches):
+            if cluster_idx not in active_branches:
+                continue
+            branch_out, _ = branch(back_out, out=self.backbone.layer_outputs)
+
+            full_detection = torch.zeros(branch_out.shape[0], branch_out.shape[1], self.num_classes+5, device=x.get_device())
+            full_detection[:, :, 0:5] = branch_out[:, :, 0:5]
+
+            new_indices = [5 + k for k in self.clusters[cluster_idx]]
+            full_detection[:, :, new_indices] = branch_out[:, :, 5:]
+            preds.append(full_detection)
+            
+        self.backbone.layer_outputs = []
+    
         return torch.cat(preds, 1)
+
+    def backward(self, losses):
+        for module in self.branches:
+            for param in module.parameters():
+                param.require_grad = False
+
+        mean_losses = sum(losses)/len(losses)
+        mean_losses.backward(retain_graph=True)
+
+        for param in self.backbone.parameters():
+                param.require_grad = False
+
+        for i, loss in enumerate(losses):
+            for param in self.branches[i].parameters():
+                param.require_grad = True
+
+            if i < len(losses) - 1:
+                loss.backward(retain_graph=True)
+
+                for param in self.branches[i].parameters():
+                    param.require_grad = False
+            else:
+                loss.backward()
+        
+        for param in self.backbone.parameters():
+                param.require_grad = True
+
+        for module in self.branches:
+            for param in module.parameters():
+                param.require_grad = True

@@ -9,7 +9,7 @@ from utils.utils import *
 from adacon_model import AdaConYolo
 
 def _get_stats_per_image(outputs, imgs, targets, paths, shapes, height, width, seen, 
-                         jdict, save_json, coco91class, niou, iouv, whwh):
+                         jdict, save_json, coco91class, niou, iouv, whwh, device):
     stats = []
     # Statistics per image
     for si, pred in enumerate(outputs):
@@ -179,7 +179,7 @@ def test(cfg,
 
     coco91class = coco80_to_coco91_class()
     t0, t1 = 0., 0.
-
+    loss = torch.zeros(3, device=device)
     jdict, stats = [], []
 
     s = ('%20s' + '%10s' * 6) % ('Class', 'Images', 'Targets', 'P', 'R', 'mAP@0.5', 'F1')
@@ -208,7 +208,7 @@ def test(cfg,
         # Statistics per image
         stat_per_image, seen = _get_stats_per_image(outputs, imgs, targets, paths, shapes, 
                                             height, width, seen, jdict, save_json, 
-                                            coco91class, niou, iouv, whwh)
+                                            coco91class, niou, iouv, whwh, device)
         stats.extend(stat_per_image)
 
     # Compute overall statistics
@@ -236,11 +236,11 @@ def test(cfg,
     for i, c in enumerate(ap_class):
         maps[c] = ap[i]
     print("AVG mAP", np.mean(maps))
-    return (mp, mr, map, mf1), maps
+    return (mp, mr, map, mf1, *(loss.cpu() / len(dataloader)).tolist()), maps
 
 def test_adacon(model_args, 
          data,
-         batch_size=16,
+         batch_size=1,
          imgsz=416,
          conf_thres=0.001,
          iou_thres=0.6,  # for nms
@@ -248,17 +248,22 @@ def test_adacon(model_args,
          single_cls=False,
          augment=False,
          device=None,
-         model=None,
+         adaconModel=None,
          dataloader=None,
          multi_label=True, 
          adaptive_exec_mode=None,
          multi_branch_thres=0.1):
 
-    adaconModel = AdaConYolo(model_args).to(device)
-    adaconModel.eval()
+    if adaconModel == None:
+        adaconModel = AdaConYolo(model_args).to(device)
+        is_training = False
+    else:
+        is_training = True
 
     adaconModel.exec_mode = adaptive_exec_mode
     adaconModel.multi_branch_thres = multi_branch_thres
+
+    adaconModel.eval()
 
     # Configure run
     data = parse_data_cfg(data)
@@ -269,7 +274,7 @@ def test_adacon(model_args,
     iouv = torch.linspace(0.5, 0.95, 10).to(device)  # iou vector for mAP@0.5:0.95
     iouv = iouv[0].view(1)  # comment for mAP@0.5:0.95
     niou = iouv.numel()
-
+    adaconModel.nc = nc
     # Dataloader
     if dataloader is None:
         dataset = LoadImagesAndLabels(path, imgsz, batch_size, rect=False, single_cls=single_cls, pad=0.5)
@@ -289,6 +294,7 @@ def test_adacon(model_args,
     t0, t1 = 0., 0.
 
     jdict, stats = [], []
+    loss = torch.zeros(3, device=device)
 
     s = ('%20s' + '%10s' * 6) % ('Class', 'Images', 'Targets', 'P', 'R', 'mAP@0.5', 'F1')
     for batch_i, (imgs, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
@@ -303,6 +309,9 @@ def test_adacon(model_args,
             out = adaconModel(imgs)
             t0 = torch_utils.time_synchronized() - t
 
+            if is_training:  # if model has loss hyperparameters
+                loss += compute_loss(out, targets, adaconModel)[1][:3]  # GIoU, obj, cls
+            
             t = torch_utils.time_synchronized()
             outputs = non_max_suppression(out, conf_thres=conf_thres, 
                                 iou_thres=iou_thres, multi_label=multi_label)
@@ -311,7 +320,7 @@ def test_adacon(model_args,
         # Statistics per image
         stat_per_image, seen = _get_stats_per_image(outputs, imgs, targets, paths, shapes, 
                                             height, width, seen, jdict, save_json, 
-                                            coco91class, niou, iouv, whwh)
+                                            coco91class, niou, iouv, whwh, device)
         stats.extend(stat_per_image)
 
     # Compute overall statistics
@@ -339,7 +348,7 @@ def test_adacon(model_args,
     for i, c in enumerate(ap_class):
         maps[c] = ap[i]
     print("AVG mAP", np.mean(maps))
-    return (mp, mr, map, mf1), maps
+    return (mp, mr, map, mf1, *(loss.cpu() / len(dataloader)).tolist()), maps
 
 
 if __name__ == '__main__':
