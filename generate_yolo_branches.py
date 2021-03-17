@@ -136,7 +136,8 @@ if __name__ == "__main__":
                             module[key] = 3*(num_classes + 5)
                     elif key == "classes":
                         module[key] = num_classes
-                            
+                    elif key == "channels":
+                        module[key] = 1024
                     file.write (key +"=" + str(module[key]))
                     file.write("\n")
 
