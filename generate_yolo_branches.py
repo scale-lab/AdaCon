@@ -66,7 +66,7 @@ if __name__ == "__main__":
         os.makedirs("output/branches")
 
     output_path = "output/branches/"
-    
+
     file = open(template_path, 'r')
     lines = file.read().split('\n')
     lines = [x for x in lines if x and not x.startswith('#')]
@@ -110,7 +110,7 @@ if __name__ == "__main__":
         # Write all found architectures
 
         print("Writing file with params ", param)
-        file_name = "arch_bnch" + str(bnch_num+1) + "_" +  str(num_branches) + "arch2.cfg"
+        file_name = "arch_bnch_" + str(bnch_num+1) + "of" +  str(num_branches) + "_arch2.cfg"
         new_module_defs = module_defs.copy()
 
         file = open(output_path+file_name, 'w')
