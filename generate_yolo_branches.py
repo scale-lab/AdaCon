@@ -59,7 +59,14 @@ if __name__ == "__main__":
     template_path = "cfg/yolov3.cfg"
 
     backbone_limit = 75
-    output_path = "generated_archs/"
+
+    if not os.path.exists("output"):
+            os.makedirs("output")
+    if not os.path.exists("output/branches"):
+        os.makedirs("output/branches")
+
+    output_path = "output/branches/"
+    
     file = open(template_path, 'r')
     lines = file.read().split('\n')
     lines = [x for x in lines if x and not x.startswith('#')]
