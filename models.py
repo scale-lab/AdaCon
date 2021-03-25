@@ -2,6 +2,7 @@ from utils.google_utils import *
 from utils.layers import *
 from utils.parse_config import *
 import utils.extras as extras
+import torch.nn.utils.prune as prune
 
 ONNX_EXPORT = False
 
@@ -342,6 +343,12 @@ class Darknet(nn.Module):
 
     def info(self, verbose=False):
         torch_utils.model_info(self, verbose)
+
+    def prune(self):
+        for i, module in enumerate(self.module_list):
+            name = module.__class__.__name__
+            if name in ['Sequential']:
+                prune.l1_unstructured(module[0], name="weight", amount=0.3)
 
 
 def get_yolo_layers(model):

@@ -5,7 +5,7 @@ import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
 from torch.utils.tensorboard import SummaryWriter
 
-from test import test, test_branch  # import test.py to get mAP after each epoch
+from test import test  # import test.py to get mAP after each epoch
 from models import *
 from utils.datasets import *
 from utils.utils import *
@@ -76,8 +76,8 @@ def train_branch_controller():
         branch_controller.load_state_dict(torch.load(opt.branch_controller_weights))
 
     # Dataset
-    dataset = ClustersDataset(train_path, augment=True, multiscale=opt.multi_scale,  clusters=clusters)
-    dataset_valid = ClustersDataset(test_path, augment=True, multiscale=False,  clusters=clusters)
+    dataset = ClustersDataset(train_path, augment=True, multiscale=opt.multi_scale, clusters=clusters)
+    dataset_valid = ClustersDataset(test_path, augment=True, multiscale=False, clusters=clusters)
 
     # Dataloader
     batch_size = min(opt.batch_size, len(dataset))
@@ -106,13 +106,14 @@ def train_branch_controller():
     best_model = branch_controller
 
     # Optimizer 
-    optimizer = torch.optim.SGD(branch_controller.parameters(),lr=learning_rate, momentum=momentum)
+    # optimizer = torch.optim.SGD(branch_controller.parameters(),lr=learning_rate, momentum=momentum)
+    optimizer = torch.optim.Adam(branch_controller.parameters(), lr=0.0001)
 
     epochs = 10
     for epoch in range(epochs):
         start_time = time.time()
-        
-        for batch_i, (_, imgs, targets) in enumerate(dataloader): # TODO convert to dataloader
+        pbar = tqdm(enumerate(dataloader), total=len(dataloader))
+        for batch_i, (_, imgs, targets) in pbar: # TODO convert to dataloader
             branch_controller.train()
             imgs = imgs.to(device)
             targets = targets.to(device)
@@ -201,6 +202,7 @@ def train(hyp):
 
     # Initialize model
     model = Darknet(cfg).to(device)
+
     backbone = None
     if opt.adaptive:
         backbone = Backbone(opt.backbone_cfg).to(device)
@@ -342,7 +344,25 @@ def train(hyp):
     model.class_weights = labels_to_class_weights(dataset.labels, nc).to(device)  # attach class weights
 
     # Model EMA
-    ema = torch_utils.ModelEMA(model)
+    # ema = torch_utils.ModelEMA(model)
+
+    if opt.prune:
+        model.prune()
+        # ema.update(model)
+        is_coco = any([x in data for x in ['coco.data', 'coco2014.data', 'coco2017.data']]) and model.nc == 80
+        results, maps = test(cfg,
+                            data,
+                            batch_size=batch_size,
+                            imgsz=imgsz_test,
+                            model=model,
+                            save_json=is_coco,
+                            single_cls=opt.single_cls,
+                            dataloader=testloader,
+                            multi_label=False, 
+                            clusters=clusters,
+                            class_to_cluster_list=class_to_cluster_list,
+                            cluster_idx=opt.cluster_idx,
+                            backbone=backbone)
 
     # Start training
     nb = len(dataloader)  # number of batches
@@ -423,7 +443,7 @@ def train(hyp):
             if ni % accumulate == 0:
                 optimizer.step()
                 optimizer.zero_grad()
-                ema.update(model)
+                # ema.update(model)
 
             # Print
             mloss = (mloss * i + loss_items) / (i + 1)  # update mean losses
@@ -440,20 +460,20 @@ def train(hyp):
                     # tb_writer.add_graph(model, imgs)  # add model to tensorboard
 
             # end batch ------------------------------------------------------------------------------------------------
-            
+
         # Update scheduler
         scheduler.step()
 
         # Process epoch results
-        ema.update_attr(model)
+        # ema.update_attr(model)
         final_epoch = epoch + 1 == epochs
         if not opt.notest or final_epoch:  # Calculate mAP
             is_coco = any([x in data for x in ['coco.data', 'coco2014.data', 'coco2017.data']]) and model.nc == 80
-            results, maps = test_branch(cfg,
+            results, maps = test(cfg,
                                  data,
                                  batch_size=batch_size,
                                  imgsz=imgsz_test,
-                                 model=ema.ema,
+                                 model=model,
                                  save_json=final_epoch and is_coco,
                                  single_cls=opt.single_cls,
                                  dataloader=testloader,
@@ -489,7 +509,7 @@ def train(hyp):
                 ckpt = {'epoch': epoch,
                         'best_fitness': best_fitness,
                         'training_results': f.read(),
-                        'model': ema.ema.module.state_dict() if hasattr(model, 'module') else ema.ema.state_dict(),
+                        'model': model.module.state_dict() if hasattr(model, 'module') else model.state_dict(),
                         'optimizer': None if final_epoch else optimizer.state_dict()}
 
             # Save last, best and delete
@@ -542,6 +562,8 @@ if __name__ == '__main__':
     parser.add_argument('--adaptive', action='store_true', help='train adaptive model')
     parser.add_argument('--model', type=str, default='model.args', help='File for the model configurations')
     parser.add_argument('--cluster_idx', type=int, default=0, help='Cluster Index to be trained')
+    parser.add_argument('--train_bc_only', action='store_true', help='train controller only')
+    parser.add_argument('--prune', action='store_true', help='train pruned model')
 
     opt = parser.parse_args()
 
@@ -560,7 +582,7 @@ if __name__ == '__main__':
 
     model_args = parse_model_args(opt.model)
 
-    if opt.adaptive:
+    if opt.adaptive or opt.train_bc_only:
         opt.clusters = check_file(model_args['clusters'])
         opt.backbone_cfg = check_file(model_args['backbone_cfg'])
         opt.backbone_weights = check_file(model_args['backbone_weights'])
@@ -590,6 +612,11 @@ if __name__ == '__main__':
     # hyp['obj'] *= opt.img_size[0] / 320.
 
     tb_writer = None
+    if opt.train_bc_only:
+        opt.name = opt.name + "_controller"
+        tb_writer = SummaryWriter(comment=opt.name)
+        train_branch_controller()  # train normally
+        exit()
     if opt.adaptive:
         name_prefix = opt.name + str(opt.cluster_idx)
         # train_branch_controller()
