@@ -9,6 +9,10 @@ from pycocotools.coco import COCO
 from utils.utils import *
 import cv2
 import torch.nn.functional as F
+import numpy as np
+from torch.utils.data import Dataset
+import skimage
+from skimage import io
 
 def resize(image, size):
     image = F.interpolate(image.unsqueeze(0), size=size, mode="nearest").squeeze(0)
@@ -40,8 +44,12 @@ class COCODataset(datasets.CocoDetection):
 
         if self.transforms is not None:
             img, target = self.transforms(img, target)
+            shape = img.shape
+        if self.train:
+            compose = transforms.Compose([transforms.ToPILImage(), transforms.Resize((self.img_size, self.img_size)), transforms.ToTensor()])
+            img = compose(img)
 
-        return img_id, os.path.join(self.root, path), img, target, img.shape
+        return img_id, os.path.join(self.root, path), img, target, shape
 
     def collate_fn(self, batch):
         ids, paths, imgs, targets, shapes = list(zip(*batch))
@@ -50,9 +58,7 @@ class COCODataset(datasets.CocoDetection):
         if self.multiscale and self.batch_count % 10 == 0:
             self.img_size = random.choice(range(self.min_size, self.max_size + 1, 32))
         
-        # Resize images to input shape
-        if self.train:
-            imgs = torch.stack([resize(img, self.img_size) for img in imgs])
+        imgs = torch.stack([img for img in imgs])
         
         new_shapes = [img.shape for img in imgs]
 
@@ -66,12 +72,11 @@ class COCODataset(datasets.CocoDetection):
             
             x_scale = new_shape[1]/shape[1]
             y_scale = new_shape[2]/shape[2]
-
             boxes = box_convert(torch.tensor([batch_target['bbox'] for batch_target in target]), 'xywh', 'xyxy') 
-            boxes[:,0] *= x_scale
-            boxes[:,1] *= y_scale
-            boxes[:,2] *= x_scale
-            boxes[:,3] *= y_scale
+            boxes[:,1] *= x_scale
+            boxes[:,0] *= y_scale
+            boxes[:,3] *= x_scale
+            boxes[:,2] *= y_scale
 
             reg_targets.append(boxes)
             cls_targets.append(torch.tensor([batch_target['category_id'] for batch_target in target]))

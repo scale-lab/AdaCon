@@ -24,6 +24,8 @@ if __name__ == '__main__':
     train_dataset = COCODataset(root=train_root,
                             annFile=train_ann,
                             transform=transforms.ToTensor(),
+                            multiscale=True,
+                            img_size=416,
                             train=True)
     train_dataloader = DataLoader(train_dataset,
                                 batch_size=batch_size,
@@ -74,8 +76,8 @@ if __name__ == '__main__':
             if batch_i % 100 == 0:
                 print(total_loss)
             
-            # temp = [loss['classification'], loss['bbox_regression'], total_loss]
-            # mloss = [(mloss[i]*batch_i + temp[i])/ (batch_i + 1) for i in range(len(temp))]
+            temp = [loss['classification'], loss['bbox_regression'], total_loss]
+            mloss = [(mloss[i]*batch_i + temp[i])/ (batch_i + 1) for i in range(len(temp))]
             optimizer.step()
             # except:
             #     print("Exception")
@@ -83,7 +85,7 @@ if __name__ == '__main__':
 
         torch.save(model.state_dict(), str(epoch) + "retinanet.pt")
 
-        results = evaluate_coco(val_dataloader, model, detection_threshold=0.6)
+        results = evaluate_coco(val_dataloader, model, detection_threshold=0.1)
 
         if tb_writer:
             tags = ['train/cls_loss', 'train/reg_loss', 'train/total_loss',
