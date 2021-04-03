@@ -185,7 +185,6 @@ def main(args):
         evaluate(model, data_loader_test, device=device)
         return
 
-    print(args.lr, optimizer.param_groups[0]["lr"])
     print("Start training")
     start_time = time.time()
     for epoch in range(args.start_epoch, args.epochs):

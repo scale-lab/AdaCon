@@ -74,7 +74,7 @@ def retinanet_resnet50_fpn(pretrained=False, progress=True,
     if pretrained:
         if ckpt:
             # model.load_state_dict(torch.load(ckpt), strict=False)
-            print("Loading ", backbone_weights, head_weights)
+            print("Loading ", backbone_weights)
             model.backbone.load_state_dict(torch.load(backbone_weights))
             model.head.load_state_dict(torch.load(head_weights))
         else:
@@ -105,7 +105,7 @@ def adacon_retinanet_resnet50_fpn(clusters, active_branch=0, num_branches=4, pre
                      active_branch=active_branch, num_branches=num_branches, **kwargs)
 
     if pretrained_backbone:
-        print("Loaded Backbone!!!!", backbone_weights)
+        print("Loaded Backbone ", backbone_weights)
         model.backbone.load_state_dict(torch.load(backbone_weights)['model'])
         # overwrite_eps(model, 0.0)
 
