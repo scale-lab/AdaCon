@@ -18,6 +18,7 @@ import math
 import torchvision
 import torch
 from torch import nn
+import torch.nn.functional as F
 
 import warnings
 from collections import OrderedDict
@@ -88,7 +89,7 @@ def retinanet_resnet50_fpn(pretrained=False, progress=True,
 
 def adacon_retinanet_resnet50_fpn(clusters, active_branch=0, num_branches=4, pretrained=False, progress=True,
                                   num_classes=91, pretrained_backbone=True, trainable_backbone_layers=None,
-                                  ckpt=None, backbone_weights=None, head_weights=None, **kwargs):
+                                  ckpt=None, backbone_weights=None, pretrained_branches=None, branches_weights=None, **kwargs):
     print("Trainable backbone layers", trainable_backbone_layers)
     trainable_backbone_layers = _validate_trainable_layers(
         pretrained or pretrained_backbone, trainable_backbone_layers, 5, 0)
@@ -110,24 +111,20 @@ def adacon_retinanet_resnet50_fpn(clusters, active_branch=0, num_branches=4, pre
         # overwrite_eps(model, 0.0)
 
     if pretrained:
-        if ckpt:
+        if branches_weights:
+            print("Loading backbone and branches")
+            model.backbone.load_state_dict(torch.load(backbone_weights)['model'])
+            for branch in range(num_branches):
+                model.heads[branch].load_state_dict(torch.load(branches_weights[branch])['head'])
+        elif ckpt:
             model.load_state_dict(torch.load(ckpt), strict=False)
-            # print("Loading ", backbone_weights, head_weights)
-            # model.backbone.load_state_dict(torch.load(backbone_weights))
-            # for branch in range(num_branches):
-            #     model.heads[branch].load_state_dict(torch.load(head_weights))
         else:
             state_dict = load_state_dict_from_url(model_urls['retinanet_resnet50_fpn_coco'],
                                                 progress=progress)
             model.load_state_dict(state_dict)
 
-        # torch.save(model.state_dict(), "retinanet_coco.pt")
         overwrite_eps(model, 0.0)
-    # if pretrained:
-    #     if ckpt:
-    #         model.load_state_dict(torch.load(ckpt), strict=False)
 
-        # overwrite_eps(model, 0.0)
     return model
 
 def retinanet_mobilenet_fpn(pretrained=False, progress=True,
@@ -176,7 +173,7 @@ class AdaConRetinaNet(nn.Module):
                  nms_thresh=0.5,
                  detections_per_img=300,
                  fg_iou_thresh=0.5, bg_iou_thresh=0.4,
-                 topk_candidates=1000):
+                 topk_candidates=1000, oracle=False, train_branch_controller=False):
         super().__init__()
 
         if not hasattr(backbone, "out_channels"):
@@ -189,8 +186,10 @@ class AdaConRetinaNet(nn.Module):
         self.active_branch = active_branch
         self.num_branches = num_branches
         self.clusters = clusters
-        self.class_to_cluster_dict = get_class_to_cluster_map(clusters)[active_branch]
-        self.cluster_to_class_map = get_cluster_to_class_map(clusters)[active_branch]
+        self.class_to_cluster_dict = get_class_to_cluster_map(clusters)
+        self.cluster_to_class_map = get_cluster_to_class_map(clusters)
+        self.oracle = oracle
+        self.train_branch_controller = train_branch_controller
         assert isinstance(anchor_generator, (AnchorGenerator, type(None)))
 
         if anchor_generator is None:
@@ -207,6 +206,7 @@ class AdaConRetinaNet(nn.Module):
                 heads.append(AdaConRetinaNetHead(backbone.out_channels, \
                         anchor_generator.num_anchors_per_location()[0], len(self.clusters[i])))
         self.heads = heads
+        self.branch_controller = AdaConRetinaNetBranchController(backbone.out_channels, num_classes)
 
         if proposal_matcher is None:
             proposal_matcher = det_utils.Matcher(
@@ -245,8 +245,8 @@ class AdaConRetinaNet(nn.Module):
         boxes = []
         for l, b in zip(targets_per_image['labels'], targets_per_image['boxes']):
             if l in self.clusters[self.active_branch]:
-                new_label = self.class_to_cluster_dict[l.item()]
-                labels.append(torch.tensor(new_label))
+                new_label = self.class_to_cluster_dict[self.active_branch][l.item()]
+                labels.append(torch.tensor(new_label, device=l.get_device()))
                 boxes.append(b)
         if len(labels) > 0 and len(boxes) > 0:
             return {'labels': torch.stack(labels, dim=0), 
@@ -258,8 +258,8 @@ class AdaConRetinaNet(nn.Module):
         for i, detection in enumerate(detections):
             labels = []
             for l in detection['labels']:
-                new_label = self.cluster_to_class_map[l.item()]
-                labels.append(torch.tensor(new_label))
+                new_label = self.cluster_to_class_map[self.active_branch][l.item()]
+                labels.append(torch.tensor(new_label, device=l.get_device()))
             if len(labels) > 0:
                 detections[i]['labels'] = torch.stack(labels, dim=0)
         return detections
@@ -404,10 +404,7 @@ class AdaConRetinaNet(nn.Module):
 
         # TODO: Do we want a list or a dict?
         features = list(features.values())
-
-        # compute the retinanet heads outputs using the features
-        head_outputs = self.heads[self.active_branch](features)
-
+        
         # create the set of anchors
         anchors = self.anchor_generator(images, features)
 
@@ -415,30 +412,69 @@ class AdaConRetinaNet(nn.Module):
         detections: List[Dict[str, Tensor]] = []
         if self.training:
             assert targets is not None
-
             # compute the losses
-            losses = self.compute_loss(targets, head_outputs, anchors)
+            # compute the retinanet heads outputs using the features
+            if self.train_branch_controller:
+                print(features.shape)
+                pass
+            else:
+                head_outputs = self.heads[self.active_branch](features)
+                losses = self.compute_loss(targets, head_outputs, anchors)
         else:
-            # recover level sizes
-            num_anchors_per_level = [x.size(2) * x.size(3) for x in features]
-            HW = 0
-            for v in num_anchors_per_level:
-                HW += v
-            HWA = head_outputs['cls_logits'].size(1)
-            A = HWA // HW
-            num_anchors_per_level = [hw * A for hw in num_anchors_per_level]
+            if self.oracle:
+                combined_detections = []
+                for i in range(self.num_branches):
+                    self.active_branch = i
+                    # compute the retinanet heads outputs using the features
+                    head_outputs = self.heads[self.active_branch](features)
+                    # recover level sizes
+                    num_anchors_per_level = [x.size(2) * x.size(3) for x in features]
+                    HW = 0
+                    for v in num_anchors_per_level:
+                        HW += v
+                    HWA = head_outputs['cls_logits'].size(1)
+                    A = HWA // HW
+                    num_anchors_per_level = [hw * A for hw in num_anchors_per_level]
 
-            # split outputs per level
-            split_head_outputs: Dict[str, List[Tensor]] = {}
-            for k in head_outputs:
-                split_head_outputs[k] = list(head_outputs[k].split(num_anchors_per_level, dim=1))
-            split_anchors = [list(a.split(num_anchors_per_level)) for a in anchors]
+                    # split outputs per level
+                    split_head_outputs: Dict[str, List[Tensor]] = {}
+                    for k in head_outputs:
+                        split_head_outputs[k] = list(head_outputs[k].split(num_anchors_per_level, dim=1))
+                    split_anchors = [list(a.split(num_anchors_per_level)) for a in anchors]
 
-            # compute the detections
-            detections = self.postprocess_detections(split_head_outputs, split_anchors, images.image_sizes)
-            detections = self.transform.postprocess(detections, images.image_sizes, original_image_sizes)
+                    # compute the detections
+                    detections = self.postprocess_detections(split_head_outputs, split_anchors, images.image_sizes)
+                    detections = self.transform.postprocess(detections, images.image_sizes, original_image_sizes)
 
-            detections = self._map_outputs_from_cluster(detections)
+                    detections = self._map_outputs_from_cluster(detections)
+                    combined_detections.append(detections)
+                    
+                detections[0]['scores'] = torch.cat([detection[0]['scores'] for detection in combined_detections])
+                detections[0]['labels'] = torch.cat([detection[0]['labels'] for detection in combined_detections])
+                detections[0]['boxes'] = torch.cat([detection[0]['boxes'] for detection in combined_detections])
+            else:
+                # compute the retinanet heads outputs using the features
+                head_outputs = self.heads[self.active_branch](features)
+                # recover level sizes
+                num_anchors_per_level = [x.size(2) * x.size(3) for x in features]
+                HW = 0
+                for v in num_anchors_per_level:
+                    HW += v
+                HWA = head_outputs['cls_logits'].size(1)
+                A = HWA // HW
+                num_anchors_per_level = [hw * A for hw in num_anchors_per_level]
+
+                # split outputs per level
+                split_head_outputs: Dict[str, List[Tensor]] = {}
+                for k in head_outputs:
+                    split_head_outputs[k] = list(head_outputs[k].split(num_anchors_per_level, dim=1))
+                split_anchors = [list(a.split(num_anchors_per_level)) for a in anchors]
+
+                # compute the detections
+                detections = self.postprocess_detections(split_head_outputs, split_anchors, images.image_sizes)
+                detections = self.transform.postprocess(detections, images.image_sizes, original_image_sizes)
+
+                detections = self._map_outputs_from_cluster(detections)
         if torch.jit.is_scripting():
             if not self._has_warned:
                 warnings.warn("RetinaNet always returns a (Losses, Detections) tuple in scripting")
@@ -474,6 +510,43 @@ class AdaConRetinaNetHead(nn.Module):
             'bbox_regression': self.regression_head(x)
         }
 
+class AdaConRetinaNetBranchController(nn.Module):
+    def __init__(self, in_channels, num_classes):
+        super().__init__()
+        conv = []
+        conv.append(nn.Conv2d(in_channels, in_channels//2, kernel_size=3, stride=1, padding=1))
+        conv.append(nn.ReLU())
+        for _ in range(2):
+            conv.append(nn.Conv2d(in_channels//2, in_channels//2, kernel_size=3, stride=1, padding=1))
+            conv.append(nn.ReLU())
+        self.conv = nn.Sequential(*conv)
+
+        for layer in self.conv.children():
+            if isinstance(layer, nn.Conv2d):
+                torch.nn.init.normal_(layer.weight, std=0.01)
+                torch.nn.init.constant_(layer.bias, 0)
+        
+        self.fc1 = nn.Linear(64, 32)
+        self.fc2 = nn.Linear(32, num_classes)
+
+    def compute_loss(self, targets, outputs):
+        # type: (List[Dict[str, Tensor]], Dict[str, Tensor], List[Tensor], List[Tensor]) -> Dict[str, Tensor]
+
+        return
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = x.view(-1, self.num_flat_features(x))
+        x = F.leaky_relu(self.fc1(x),0.1)
+        x = self.fc2(x)
+        return F.softmax(x)
+
+    def num_flat_features(self, x):
+        size = x.size()[1:]  # all dimensions except the batch dimension
+        num_features = 1
+        for s in size:
+            num_features *= s
+        return num_features
 
 class AdaConRetinaNetClassificationHead(nn.Module):
     """

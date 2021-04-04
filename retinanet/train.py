@@ -21,6 +21,16 @@ import presets
 import utils
 from prettytable import PrettyTable
 
+def get_image_size_range(img_size):
+    if img_size == 416:
+        return 400, 500
+    elif img_size == 320:
+        return 300, 400
+    elif img_size == 512:
+        return 500, 600
+    else:
+        return img_size, img_size
+    
 def parse_clusters_config(path):
     """Parses the clusters configuration file"""
     print("Reading clusters file")
@@ -127,20 +137,21 @@ def main(args):
         if args.rpn_score_thresh is not None:
             kwargs["rpn_score_thresh"] = args.rpn_score_thresh
     
+    min_size, max_size = get_image_size_range(args.img_size)
     if args.adaptive:
         clusters = parse_clusters_config(args.clusters)
         active_branch = args.active_branch
         model = adacon_retinanet_resnet50_fpn(clusters=clusters, active_branch=active_branch, num_branches=len(clusters),
                             num_classes=num_classes, trainable_backbone_layers=args.trainable_backbone_layers,
-                            pretrained=args.pretrained, pretrained_backbone=args.pretrained_backbone, 
+                            pretrained=args.pretrained, pretrained_backbone=args.pretrained_backbone, branches_weights=args.branches,
                             backbone_weights=args.backbone_weights,
-                            min_size=400, max_size=500, ckpt=args.resume)
+                            min_size=min_size, max_size=max_size, ckpt=args.resume)
         freeze_all_non_active_layers(model, active_branch)
     else:
         model = retinanet_resnet50_fpn(num_classes=num_classes, trainable_backbone_layers=args.trainable_backbone_layers,
                         pretrained=args.pretrained, pretrained_backbone=args.pretrained_backbone, 
                         backbone_weights="retinanet_coco_backbone.pt", head_weights="retinanet_coco_head.pt",
-                        min_size=400, max_size=500, ckpt=args.resume)
+                        min_size=min_size, max_size=max_size, ckpt=args.resume)
     
     count_parameters(model)
     model.to(device)
@@ -182,6 +193,8 @@ def main(args):
     # exit()
 
     if args.test_only:
+        if args.oracle:
+            model.oracle = True
         evaluate(model, data_loader_test, device=device)
         return
 
@@ -280,12 +293,25 @@ if __name__ == "__main__":
         action="store_true",
     )
     parser.add_argument(
+        "--oracle",
+        dest="oracle",
+        help="Enable oracle Adaptive mode",
+        action="store_true",
+    )
+    parser.add_argument(
         "--clusters",
         dest="clusters", type=str,
         help="Clusters file to create the adaptive model"
     )
+    parser.add_argument(
+        "--img-size",
+        dest="img_size", type=int, default=416,
+        help="Input image size to model"
+    )
     parser.add_argument('--active-branch', dest="active_branch", default=0, type=int,
                         help='active branch in the adaptive model')
+
+    parser.add_argument('--branches', nargs='+', help='trained branches for adaptive test', required=True)
 
     # distributed training parameters
     parser.add_argument('--world-size', default=1, type=int,
