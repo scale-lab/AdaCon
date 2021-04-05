@@ -46,14 +46,13 @@ def parse_clusters_config(path):
     
     coco80to91 = coco80_to_coco91_class()
     clusters = [[coco80to91[c] for c in cluster] for cluster in clusters]
-
     return clusters
 
 def count_parameters(model):
     table = PrettyTable(["Modules", "Parameters"])
     total_params = 0
     for name, parameter in model.named_parameters():
-        if not parameter.requires_grad: continue
+        # if not parameter.requires_grad: continue
         param = parameter.numel()
         table.add_row([name, param])
         total_params+=param
@@ -61,14 +60,23 @@ def count_parameters(model):
     print("Total Trainable Params: ", total_params)
     return total_params
 
-def freeze_all_non_active_layers(model, active_branch):
+def freeze_all_non_active_layers(model, active_branch, train_bc):
     for param in model.backbone.parameters():
         param.requires_grad = False
-    for i, head in enumerate(model.heads):
-        if i == active_branch:
-            continue
-        for param in head.parameters():
+    
+    if train_bc:
+        for i, head in enumerate(model.heads):
+            for param in head.parameters():
+                param.requires_grad = False
+    else:
+        for param in model.branch_controller.parameters():
             param.requires_grad = False
+        for i, head in enumerate(model.heads):
+            if i == active_branch:
+                continue
+            for param in head.parameters():
+                param.requires_grad = False
+    
 
 def coco80_to_coco91_class():  # converts 80-index (val2014) to 91-index (paper)
     # https://tech.amikelive.com/node-718/what-object-categories-labels-are-in-coco-dataset/
@@ -125,7 +133,7 @@ def main(args):
         collate_fn=utils.collate_fn)
 
     data_loader_test = torch.utils.data.DataLoader(
-        dataset_test, batch_size=1,
+        dataset_test, batch_size=args.batch_size,
         sampler=test_sampler, num_workers=args.workers,
         collate_fn=utils.collate_fn)
 
@@ -144,9 +152,12 @@ def main(args):
         model = adacon_retinanet_resnet50_fpn(clusters=clusters, active_branch=active_branch, num_branches=len(clusters),
                             num_classes=num_classes, trainable_backbone_layers=args.trainable_backbone_layers,
                             pretrained=args.pretrained, pretrained_backbone=args.pretrained_backbone, branches_weights=args.branches,
-                            backbone_weights=args.backbone_weights,
+                            backbone_weights=args.backbone_weights, bc_weights=args.branch_controller,
                             min_size=min_size, max_size=max_size, ckpt=args.resume)
-        freeze_all_non_active_layers(model, active_branch)
+        freeze_all_non_active_layers(model, active_branch, args.enable_branch_controller)
+
+        if args.enable_branch_controller:
+            model.enable_branch_controller = True
     else:
         model = retinanet_resnet50_fpn(num_classes=num_classes, trainable_backbone_layers=args.trainable_backbone_layers,
                         pretrained=args.pretrained, pretrained_backbone=args.pretrained_backbone, 
@@ -195,6 +206,8 @@ def main(args):
     if args.test_only:
         if args.oracle:
             model.oracle = True
+        if args.single:
+            model.singleb = True
         evaluate(model, data_loader_test, device=device)
         return
 
@@ -207,15 +220,24 @@ def main(args):
         lr_scheduler.step()
         if args.output_dir:
             if args.adaptive:
-                utils.save_on_master({
-                    'model': model_without_ddp.state_dict(),
-                    'backbone': model_without_ddp.backbone.state_dict(),
-                    'head': model_without_ddp.heads[active_branch].state_dict(),
+                if args.enable_branch_controller:
+                    utils.save_on_master({
+                    'branch_controller': model_without_ddp.branch_controller.state_dict(),
                     'optimizer': optimizer.state_dict(),
                     'lr_scheduler': lr_scheduler.state_dict(),
                     'args': args,
                     'epoch': epoch},
-                    os.path.join(args.output_dir, 'model_branch{}_{}.pth'.format(active_branch, epoch)))
+                    os.path.join(args.output_dir, 'model_branchcontroller{}_{}.pth'.format(len(clusters), epoch)))
+                else:
+                    utils.save_on_master({
+                        'model': model_without_ddp.state_dict(),
+                        'backbone': model_without_ddp.backbone.state_dict(),
+                        'head': model_without_ddp.heads[active_branch].state_dict(),
+                        'optimizer': optimizer.state_dict(),
+                        'lr_scheduler': lr_scheduler.state_dict(),
+                        'args': args,
+                        'epoch': epoch},
+                        os.path.join(args.output_dir, 'model_branch{}_{}.pth'.format(active_branch, epoch)))
             else:
                 utils.save_on_master({
                     'model': model_without_ddp.state_dict(),
@@ -299,6 +321,12 @@ if __name__ == "__main__":
         action="store_true",
     )
     parser.add_argument(
+        "--single",
+        dest="single",
+        help="Enable single execution Adaptive mode",
+        action="store_true",
+    )
+    parser.add_argument(
         "--clusters",
         dest="clusters", type=str,
         help="Clusters file to create the adaptive model"
@@ -311,8 +339,11 @@ if __name__ == "__main__":
     parser.add_argument('--active-branch', dest="active_branch", default=0, type=int,
                         help='active branch in the adaptive model')
 
-    parser.add_argument('--branches', nargs='+', help='trained branches for adaptive test', required=True)
+    parser.add_argument('--branches', nargs='+', help='trained branches for adaptive test', required=False)
+    parser.add_argument('--branch_controller', type=str, help='trained branch controller for adaptive test', required=False)
 
+    parser.add_argument('--enable-branch-controller', dest="enable_branch_controller", action="store_true",
+                        help='Train Branch Controller')
     # distributed training parameters
     parser.add_argument('--world-size', default=1, type=int,
                         help='number of distributed processes')

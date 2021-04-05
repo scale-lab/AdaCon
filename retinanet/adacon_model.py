@@ -89,7 +89,8 @@ def retinanet_resnet50_fpn(pretrained=False, progress=True,
 
 def adacon_retinanet_resnet50_fpn(clusters, active_branch=0, num_branches=4, pretrained=False, progress=True,
                                   num_classes=91, pretrained_backbone=True, trainable_backbone_layers=None,
-                                  ckpt=None, backbone_weights=None, pretrained_branches=None, branches_weights=None, **kwargs):
+                                  ckpt=None, backbone_weights=None, pretrained_branches=None, branches_weights=None,
+                                  bc_weights=None, **kwargs):
     print("Trainable backbone layers", trainable_backbone_layers)
     trainable_backbone_layers = _validate_trainable_layers(
         pretrained or pretrained_backbone, trainable_backbone_layers, 5, 0)
@@ -116,6 +117,9 @@ def adacon_retinanet_resnet50_fpn(clusters, active_branch=0, num_branches=4, pre
             model.backbone.load_state_dict(torch.load(backbone_weights)['model'])
             for branch in range(num_branches):
                 model.heads[branch].load_state_dict(torch.load(branches_weights[branch])['head'])
+            if bc_weights:
+                print("Loading branch controller")
+                model.branch_controller.load_state_dict(torch.load(bc_weights)['branch_controller'])
         elif ckpt:
             model.load_state_dict(torch.load(ckpt), strict=False)
         else:
@@ -173,7 +177,8 @@ class AdaConRetinaNet(nn.Module):
                  nms_thresh=0.5,
                  detections_per_img=300,
                  fg_iou_thresh=0.5, bg_iou_thresh=0.4,
-                 topk_candidates=1000, oracle=False, train_branch_controller=False):
+                 topk_candidates=1000, oracle=False, singleb=False,
+                 enable_branch_controller=False):
         super().__init__()
 
         if not hasattr(backbone, "out_channels"):
@@ -184,12 +189,13 @@ class AdaConRetinaNet(nn.Module):
         self.backbone = backbone
 
         self.active_branch = active_branch
-        self.num_branches = num_branches
         self.clusters = clusters
+        self.num_branches = len(clusters)
         self.class_to_cluster_dict = get_class_to_cluster_map(clusters)
         self.cluster_to_class_map = get_cluster_to_class_map(clusters)
         self.oracle = oracle
-        self.train_branch_controller = train_branch_controller
+        self.singleb = singleb
+        self.enable_branch_controller = enable_branch_controller
         assert isinstance(anchor_generator, (AnchorGenerator, type(None)))
 
         if anchor_generator is None:
@@ -206,7 +212,8 @@ class AdaConRetinaNet(nn.Module):
                 heads.append(AdaConRetinaNetHead(backbone.out_channels, \
                         anchor_generator.num_anchors_per_location()[0], len(self.clusters[i])))
         self.heads = heads
-        self.branch_controller = AdaConRetinaNetBranchController(backbone.out_channels, num_classes)
+        print(backbone.out_channels, "backbone.out_channels")
+        self.branch_controller = AdaConRetinaNetBranchController(backbone.out_channels, len(self.clusters))
 
         if proposal_matcher is None:
             proposal_matcher = det_utils.Matcher(
@@ -264,26 +271,47 @@ class AdaConRetinaNet(nn.Module):
                 detections[i]['labels'] = torch.stack(labels, dim=0)
         return detections
 
+    def _count_common_elements(self, list1, list2):
+        return sum(el in list1 for el in list2)
+
+    def _get_branch_controller_targets(self, targets):
+        bc_targets: List[Tensor] = []
+        for targets_per_image in targets:
+            clusters_cnt = [self._count_common_elements(targets_per_image['labels'], self.clusters[i])
+                            for i in range(self.num_branches)]
+            bc_targets.append(torch.tensor(clusters_cnt.index(max(clusters_cnt)), 
+                            device=targets_per_image['labels'].get_device()))
+
+        return torch.stack(bc_targets, dim=0)
+
+    def _eval_branch_controller(self, targets, outputs):
+        targets = self._get_branch_controller_targets(targets)
+        return {'accuracy': torch.count_nonzero(targets==outputs)/len(targets)}
+
     def compute_loss(self, targets, head_outputs, anchors):
         # type: (List[Dict[str, Tensor]], Dict[str, Tensor], List[Tensor]) -> Dict[str, Tensor]
-        matched_idxs = []
-        for i, (anchors_per_image, targets_per_image) in enumerate(zip(anchors, targets)):
-            targets_per_image = self._map_targets_to_cluster(targets_per_image)
-            # change in src
-            targets[i] = targets_per_image
+        if self.enable_branch_controller:
+            targets = self._get_branch_controller_targets(targets)
+            return self.branch_controller.compute_loss(targets, head_outputs)
+        else:
+            matched_idxs = []
+            for i, (anchors_per_image, targets_per_image) in enumerate(zip(anchors, targets)):
+                targets_per_image = self._map_targets_to_cluster(targets_per_image)
+                # change in src
+                targets[i] = targets_per_image
 
-            if targets_per_image == None:
-                matched_idxs.append(torch.full((anchors_per_image.size(0),), -1, dtype=torch.int64))
-                continue
+                if targets_per_image == None:
+                    matched_idxs.append(torch.full((anchors_per_image.size(0),), -1, dtype=torch.int64))
+                    continue
 
-            if targets_per_image['boxes'].numel() == 0:
-                matched_idxs.append(torch.full((anchors_per_image.size(0),), -1, dtype=torch.int64))
-                continue
+                if targets_per_image['boxes'].numel() == 0:
+                    matched_idxs.append(torch.full((anchors_per_image.size(0),), -1, dtype=torch.int64))
+                    continue
 
-            match_quality_matrix = box_ops.box_iou(targets_per_image['boxes'], anchors_per_image)
-            matched_idxs.append(self.proposal_matcher(match_quality_matrix))
+                match_quality_matrix = box_ops.box_iou(targets_per_image['boxes'], anchors_per_image)
+                matched_idxs.append(self.proposal_matcher(match_quality_matrix))
 
-        return self.heads[self.active_branch].compute_loss(targets, head_outputs, anchors, matched_idxs)
+                return self.heads[self.active_branch].compute_loss(targets, head_outputs, anchors, matched_idxs)
 
     def postprocess_detections(self, head_outputs, anchors, image_shapes):
         # type: (Dict[str, List[Tensor]], List[List[Tensor]], List[Tuple[int, int]]) -> List[Dict[str, Tensor]]
@@ -414,14 +442,17 @@ class AdaConRetinaNet(nn.Module):
             assert targets is not None
             # compute the losses
             # compute the retinanet heads outputs using the features
-            if self.train_branch_controller:
-                print(features.shape)
-                pass
+            if self.enable_branch_controller:
+                outputs = self.branch_controller(features[-3])
+                losses = self.compute_loss(targets, outputs, anchors)
             else:
                 head_outputs = self.heads[self.active_branch](features)
                 losses = self.compute_loss(targets, head_outputs, anchors)
         else:
-            if self.oracle:
+            if self.enable_branch_controller:
+                return self._eval_branch_controller(targets, torch.argmax(self.branch_controller(features[-3]), dim=1))
+            
+            elif self.oracle:
                 combined_detections = []
                 for i in range(self.num_branches):
                     self.active_branch = i
@@ -453,6 +484,9 @@ class AdaConRetinaNet(nn.Module):
                 detections[0]['labels'] = torch.cat([detection[0]['labels'] for detection in combined_detections])
                 detections[0]['boxes'] = torch.cat([detection[0]['boxes'] for detection in combined_detections])
             else:
+                if self.singleb:
+                    bc_out = self.branch_controller(features[-3].clone())
+                    self.active_branch = torch.argmax(bc_out, dim=1)
                 # compute the retinanet heads outputs using the features
                 head_outputs = self.heads[self.active_branch](features)
                 # recover level sizes
@@ -514,39 +548,39 @@ class AdaConRetinaNetBranchController(nn.Module):
     def __init__(self, in_channels, num_classes):
         super().__init__()
         conv = []
-        conv.append(nn.Conv2d(in_channels, in_channels//2, kernel_size=3, stride=1, padding=1))
+        conv.append(nn.Conv2d(in_channels, in_channels//2, kernel_size=3, stride=2, padding=1))
         conv.append(nn.ReLU())
-        for _ in range(2):
-            conv.append(nn.Conv2d(in_channels//2, in_channels//2, kernel_size=3, stride=1, padding=1))
-            conv.append(nn.ReLU())
+        conv.append(nn.Conv2d(in_channels//2, in_channels//2, kernel_size=3, stride=2, padding=1))
+        conv.append(nn.ReLU())
+        conv.append(nn.Conv2d(in_channels//2, in_channels//4, kernel_size=3, stride=2, padding=1))
+        conv.append(nn.ReLU())
+        conv.append(nn.Conv2d(in_channels//4, in_channels//4, kernel_size=3, stride=2, padding=1))
+        conv.append(nn.ReLU())
+        # for _ in range(3):
+        #     conv.append(nn.Conv2d(in_channels//2, in_channels//2, kernel_size=3, stride=2, padding=1))
+        #     conv.append(nn.ReLU())
         self.conv = nn.Sequential(*conv)
 
-        for layer in self.conv.children():
-            if isinstance(layer, nn.Conv2d):
-                torch.nn.init.normal_(layer.weight, std=0.01)
-                torch.nn.init.constant_(layer.bias, 0)
+        # for layer in self.conv.children():
+        #     if isinstance(layer, nn.Conv2d):
+        #         torch.nn.init.normal_(layer.weight, std=0.01)
+        #         torch.nn.init.constant_(layer.bias, 0)
         
         self.fc1 = nn.Linear(64, 32)
         self.fc2 = nn.Linear(32, num_classes)
+        self.num_classes = num_classes
 
     def compute_loss(self, targets, outputs):
         # type: (List[Dict[str, Tensor]], Dict[str, Tensor], List[Tensor], List[Tensor]) -> Dict[str, Tensor]
-
-        return
+        loss = nn.CrossEntropyLoss()
+        return {'bc_loss': loss(outputs, targets)}
 
     def forward(self, x):
         x = self.conv(x)
-        x = x.view(-1, self.num_flat_features(x))
-        x = F.leaky_relu(self.fc1(x),0.1)
+        x = x.view(x.shape[0], -1)
+        x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return F.softmax(x)
-
-    def num_flat_features(self, x):
-        size = x.size()[1:]  # all dimensions except the batch dimension
-        num_features = 1
-        for s in size:
-            num_features *= s
-        return num_features
 
 class AdaConRetinaNetClassificationHead(nn.Module):
     """
