@@ -120,6 +120,13 @@ def get_dataset(name, image_set, transform, data_path):
 def get_transform(train):
     return presets.DetectionPresetTrain() if train else presets.DetectionPresetEval()
 
+def get_deployable_model(model, num_branches):
+    model_dict = {}
+    model_dict['branch_controller'] = model.branch_controller.state_dict()
+    model_dict['backbone'] = model.backbone.state_dict()
+    model_dict['heads'] = [head.state_dict() for head in model.heads]
+    utils.save_on_master(model_dict,
+    os.path.join(args.output_dir, 'retinanet_for_deployment_{}b.pth'.format(num_branches)))
 
 def main(args):
     # utils.init_distributed_mode(args)
@@ -169,9 +176,9 @@ def main(args):
                                 num_classes=num_classes, trainable_backbone_layers=args.trainable_backbone_layers,
                                 pretrained=args.pretrained, pretrained_backbone=args.pretrained_backbone, branches_weights=args.branches,
                                 backbone_weights=args.backbone_weights, bc_weights=args.branch_controller,
-                                min_size=min_size, max_size=max_size, ckpt=args.resume)
+                                min_size=min_size, max_size=max_size, ckpt=args.resume, deploy=args.deploy)
             freeze_adacon_retinanet_all_non_active_layers(model, active_branch, args.enable_branch_controller)
-
+            # get_deployable_model(model, len(clusters))
         elif args.model == "rcnn":
             model = adacon_fasterrcnn_mobilenet_v3_large_320_fpn(clusters=clusters, active_branch=active_branch, num_branches=len(clusters),
                                 num_classes=num_classes, trainable_backbone_layers=args.trainable_backbone_layers,
@@ -341,6 +348,7 @@ if __name__ == "__main__":
     parser.add_argument('--output-dir', default='.', help='path where to save')
     parser.add_argument('--resume', default='', help='resume from checkpoint')
     parser.add_argument('--backbone-weights', dest="backbone_weights", type=str, default='backbone_coco.pth', help='load backbone weights')
+    parser.add_argument('--deploy', dest="deploy", type=str, help='combined weights for deployment')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     parser.add_argument('--aspect-ratio-group-factor', default=3, type=int)
     parser.add_argument('--rpn-score-thresh', default=None, type=float, help='rpn score threshold for faster-rcnn')

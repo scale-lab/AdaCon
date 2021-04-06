@@ -159,7 +159,7 @@ def main(args):
                                 num_classes=num_classes, trainable_backbone_layers=args.trainable_backbone_layers,
                                 pretrained=args.pretrained, pretrained_backbone=args.pretrained_backbone, branches_weights=args.branches,
                                 backbone_weights=args.backbone_weights, bc_weights=args.branch_controller,
-                                min_size=min_size, max_size=max_size, ckpt=args.resume)
+                                min_size=min_size, max_size=max_size, ckpt=args.resume, deploy=args.deploy)
             freeze_adacon_retinanet_all_non_active_layers(model, active_branch, args.enable_branch_controller)
 
         elif args.model == "rcnn":
@@ -237,6 +237,7 @@ if __name__ == "__main__":
     parser.add_argument('--output-dir', default='.', help='path where to save')
     parser.add_argument('--resume', default='', help='resume from checkpoint')
     parser.add_argument('--backbone-weights', dest="backbone_weights", type=str, default='backbone_coco.pth', help='load backbone weights')
+    parser.add_argument('--deploy', dest="deploy", type=str, help='combined weights for deployment')
     parser.add_argument('--start_epoch', default=0, type=int, help='start epoch')
     parser.add_argument('--aspect-ratio-group-factor', default=3, type=int)
     parser.add_argument('--rpn-score-thresh', default=None, type=float, help='rpn score threshold for faster-rcnn')

@@ -90,7 +90,7 @@ def retinanet_resnet50_fpn(pretrained=False, progress=True,
 def adacon_retinanet_resnet50_fpn(clusters, active_branch=0, num_branches=4, pretrained=False, progress=True,
                                   num_classes=91, pretrained_backbone=True, trainable_backbone_layers=None,
                                   ckpt=None, backbone_weights=None, pretrained_branches=None, branches_weights=None,
-                                  bc_weights=None, **kwargs):
+                                  bc_weights=None, deploy=None, **kwargs):
     print("Trainable backbone layers", trainable_backbone_layers)
     trainable_backbone_layers = _validate_trainable_layers(
         pretrained or pretrained_backbone, trainable_backbone_layers, 5, 0)
@@ -103,7 +103,7 @@ def adacon_retinanet_resnet50_fpn(clusters, active_branch=0, num_branches=4, pre
     # skip P2 because it generates too many anchors (according to their paper)
     backbone = resnet_fpn_backbone('resnet50', pretrained_backbone, returned_layers=[2, 3, 4],
                                    extra_blocks=LastLevelP6P7(256, 256), trainable_layers=trainable_backbone_layers)
-    model = AdaConRetinaNet(backbone, num_classes, clusters, 
+    model = AdaConRetinaNet(backbone, num_classes, clusters,
                      active_branch=active_branch, num_branches=num_branches, **kwargs)
 
     if pretrained_backbone:
@@ -112,7 +112,16 @@ def adacon_retinanet_resnet50_fpn(clusters, active_branch=0, num_branches=4, pre
         # overwrite_eps(model, 0.0)
 
     if pretrained:
-        if backbone_weights:
+        if deploy:
+            state_dict = torch.load(deploy)
+            print("Loading Backbone")
+            model.backbone.load_state_dict(state_dict['backbone'])
+            print("Loading BC")
+            model.branch_controller.load_state_dict(state_dict['branch_controller'])
+            for i in range(num_branches):
+                print("Loading Head", i)
+                model.heads[i].load_state_dict(state_dict['heads'][i])
+        elif backbone_weights:
             print("Loading backbone")
             model.backbone.load_state_dict(torch.load(backbone_weights)['model'])
             if branches_weights:
