@@ -122,9 +122,7 @@ def get_transform(train):
 
 
 def main(args):
-    # utils.init_distributed_mode(args)
     args.distributed = False
-    print(args)
 
     device = torch.device(args.device)
 
@@ -135,10 +133,6 @@ def main(args):
     dataset_test, _ = get_dataset(args.dataset, "val", get_transform(train=False), args.data_path)
 
     print("Creating data loaders")
-    # if args.distributed:
-    #     train_sampler = torch.utils.data.distributed.DistributedSampler(dataset)
-    #     test_sampler = torch.utils.data.distributed.DistributedSampler(dataset_test)
-    # else:
     train_sampler = torch.utils.data.RandomSampler(dataset)
     test_sampler = torch.utils.data.SequentialSampler(dataset_test)
 
@@ -148,10 +142,6 @@ def main(args):
     else:
         train_batch_sampler = torch.utils.data.BatchSampler(
             train_sampler, args.batch_size, drop_last=True)
-
-    data_loader = torch.utils.data.DataLoader(
-        dataset, batch_sampler=train_batch_sampler, num_workers=args.workers,
-        collate_fn=utils.collate_fn)
 
     data_loader_test = torch.utils.data.DataLoader(
         dataset_test, batch_size=args.batch_size,
@@ -214,102 +204,8 @@ def main(args):
             print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
             print('{:<30}  {:<8}'.format('Number of parameters: ', params))
 
-
-    model_without_ddp = model
-    # if args.distributed:
-    #     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
-    #     model_without_ddp = model.module
-
-    params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = torch.optim.SGD(
-        params, lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
-    
-    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=args.lr_steps, gamma=args.lr_gamma)
-
-    if args.resume:
-        if args.adaptive:
-            checkpoint = torch.load(args.resume, map_location='cpu')
-            model_without_ddp.load_state_dict(torch.load(args.resume)['model'])
-            # model_without_ddp.heads[active_branch].load_state_dict(torch.load(args.resume)['head'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
-            args.start_epoch = checkpoint['epoch'] + 1
-        else:
-            checkpoint = torch.load(args.resume, map_location='cpu')
-            model_without_ddp.load_state_dict(checkpoint['model'])
-            optimizer.load_state_dict(checkpoint['optimizer'])
-            lr_scheduler.load_state_dict(checkpoint['lr_scheduler'])
-            args.start_epoch = checkpoint['epoch'] + 1
-
-    # utils.save_on_master({
-    #     'model': model_without_ddp.state_dict(),
-    #     'backbone': model_without_ddp.backbone.state_dict(),
-    #     'rpn': model_without_ddp.rpn.state_dict(),
-    #     'optimizer': optimizer.state_dict(),
-    #     'lr_scheduler': lr_scheduler.state_dict(),
-    #     'args': args},
-    #     os.path.join(args.output_dir, 'rcnn_mobilenet_backbone_rpn.pth'))
-    # exit()
-
-    if args.test_only:
-        evaluate(model, data_loader_test, device=device)
-        return
-
-    print("Start training")
-    start_time = time.time()
-    for epoch in range(args.start_epoch, args.epochs):
-        # if args.distributed:
-        #     train_sampler.set_epoch(epoch)
-        train_one_epoch(model, optimizer, data_loader, device, epoch, args.print_freq)
-        lr_scheduler.step()
-        if args.output_dir:
-            if args.adaptive:
-                if args.enable_branch_controller:
-                    utils.save_on_master({
-                    'branch_controller': model_without_ddp.branch_controller.state_dict(),
-                    'optimizer': optimizer.state_dict(),
-                    'lr_scheduler': lr_scheduler.state_dict(),
-                    'args': args,
-                    'epoch': epoch},
-                    os.path.join(args.output_dir, 'model_branchcontroller{}_{}.pth'.format(len(clusters), epoch)))
-                else:
-                    if args.model == "retinanet":
-                        utils.save_on_master({
-                            'model': model_without_ddp.state_dict(),
-                            'backbone': model_without_ddp.backbone.state_dict(),
-                            'head': model_without_ddp.heads[active_branch].state_dict(),
-                            'optimizer': optimizer.state_dict(),
-                            'lr_scheduler': lr_scheduler.state_dict(),
-                            'args': args,
-                            'epoch': epoch},
-                            os.path.join(args.output_dir, 'retina_branch{}_{}.pth'.format(active_branch, epoch)))
-                    elif args.model == "rcnn":
-                        utils.save_on_master({
-                            'model': model_without_ddp.state_dict(),
-                            'backbone': model_without_ddp.backbone.state_dict(),
-                            'rpn': model_without_ddp.rpn.state_dict(),
-                            'head': model_without_ddp.roi_heads[active_branch].state_dict(),
-                            'optimizer': optimizer.state_dict(),
-                            'lr_scheduler': lr_scheduler.state_dict(),
-                            'args': args,
-                            'epoch': epoch},
-                            os.path.join(args.output_dir, 'retina_branch{}_{}.pth'.format(active_branch, epoch)))
-            else:
-                utils.save_on_master({
-                    'model': model_without_ddp.state_dict(),
-                    'optimizer': optimizer.state_dict(),
-                    'lr_scheduler': lr_scheduler.state_dict(),
-                    'args': args,
-                    'epoch': epoch},
-                    os.path.join(args.output_dir, 'model_{}.pth'.format(epoch)))
-
-        # evaluate after every epoch
-        evaluate(model, data_loader_test, device=device)
-
-    total_time = time.time() - start_time
-    total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-    print('Training time {}'.format(total_time_str))
-
+    evaluate(model, data_loader_test, device=device)
+    return
 
 if __name__ == "__main__":
     import argparse
@@ -346,12 +242,6 @@ if __name__ == "__main__":
     parser.add_argument('--rpn-score-thresh', default=None, type=float, help='rpn score threshold for faster-rcnn')
     parser.add_argument('--trainable-backbone-layers', default=None, type=int,
                         help='number of trainable layers of backbone')
-    parser.add_argument(
-        "--test-only",
-        dest="test_only",
-        help="Only test the model",
-        action="store_true",
-    )
     parser.add_argument(
         "--pretrained",
         dest="pretrained",
