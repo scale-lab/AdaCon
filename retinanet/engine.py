@@ -118,3 +118,13 @@ def evaluate(model, data_loader, device):
     coco_evaluator.summarize()
     torch.set_num_threads(n_threads)
     return coco_evaluator
+
+
+@torch.no_grad()
+def run_on_device(model, data_loader, device):
+    for i, (images, targets) in enumerate(data_loader):
+        images = list(img.to(device) for img in images)
+        # targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        torch.cuda.synchronize()
+        model_time = time.time()
+        outputs = model(images, targets)

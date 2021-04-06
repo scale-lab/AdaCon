@@ -16,7 +16,7 @@ from adacon_model import retinanet_resnet50_fpn, adacon_retinanet_resnet50_fpn
 from coco_utils import get_coco, get_coco_kp
 
 from group_by_aspect_ratio import GroupedBatchSampler, create_aspect_ratio_groups
-from engine import train_one_epoch, evaluate
+from engine import run_on_device
 
 import presets
 import utils
@@ -193,7 +193,7 @@ def main(args):
             count_parameters(model.roi_heads)
         model.to(device)
 
-    evaluate(model, data_loader_test, device=device)
+    run_on_device(model, data_loader_test, device=device)
     return
 
 if __name__ == "__main__":
