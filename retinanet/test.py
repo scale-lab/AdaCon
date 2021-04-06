@@ -21,7 +21,6 @@ from engine import train_one_epoch, evaluate
 import presets
 import utils
 from prettytable import PrettyTable
-from ptflops import get_model_complexity_info
 
 def get_image_size_range(img_size):
     if img_size == 416:
@@ -179,11 +178,6 @@ def main(args):
             model.singleb = True
         count_parameters(model)
         model.to(device)
-        # with torch.cuda.device(0):
-        #     macs, params = get_model_complexity_info(model, (3, args.img_size, args.img_size), as_strings=True,
-        #                                             print_per_layer_stat=True, verbose=True)
-        #     print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
-        #     print('{:<30}  {:<8}'.format('Number of parameters: ', params))
     else:
         if args.model == "retinanet":
             model = retinanet_resnet50_fpn(num_classes=num_classes, trainable_backbone_layers=args.trainable_backbone_layers,
@@ -198,11 +192,6 @@ def main(args):
             count_parameters(model.rpn)
             count_parameters(model.roi_heads)
         model.to(device)
-        with torch.cuda.device(0):
-            macs, params = get_model_complexity_info(model, (3, args.img_size, args.img_size), as_strings=True,
-                                                    print_per_layer_stat=True, verbose=True)
-            print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
-            print('{:<30}  {:<8}'.format('Number of parameters: ', params))
 
     evaluate(model, data_loader_test, device=device)
     return
