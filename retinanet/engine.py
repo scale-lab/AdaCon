@@ -13,6 +13,7 @@ from coco_utils import get_coco_api_from_dataset
 from coco_eval import CocoEvaluator
 import utils
 import json
+from tqdm import tqdm
 
 def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq):
     model.train()
@@ -122,9 +123,9 @@ def evaluate(model, data_loader, device):
 
 @torch.no_grad()
 def run_on_device(model, data_loader, device):
-    for i, (images, targets) in enumerate(data_loader):
+    model.eval()
+    for i, (images, targets) in enumerate(tqdm(data_loader)):
         images = list(img.to(device) for img in images)
-        # targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
         torch.cuda.synchronize()
         model_time = time.time()
-        outputs = model(images, targets)
+        outputs = model(images)
