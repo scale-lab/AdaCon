@@ -188,7 +188,8 @@ class AdaConRetinaNet(nn.Module):
                  nms_thresh=0.5,
                  detections_per_img=300,
                  fg_iou_thresh=0.5, bg_iou_thresh=0.4,
-                 topk_candidates=1000, oracle=False, singleb=False,
+                 topk_candidates=1000, oracle=False, singleb=False, 
+                 multib=False, bc_thres=0.4,
                  enable_branch_controller=False):
         super().__init__()
 
@@ -206,6 +207,8 @@ class AdaConRetinaNet(nn.Module):
         self.cluster_to_class_map = get_cluster_to_class_map(clusters)
         self.oracle = oracle
         self.singleb = singleb
+        self.multib = multib
+        self.bc_thres = bc_thres
         self.enable_branch_controller = enable_branch_controller
         assert isinstance(anchor_generator, (AnchorGenerator, type(None)))
 
@@ -246,7 +249,7 @@ class AdaConRetinaNet(nn.Module):
         self.nms_thresh = nms_thresh
         self.detections_per_img = detections_per_img
         self.topk_candidates = topk_candidates
-
+        self.executed_branches = 0
         # used only on torchscript mode
         self._has_warned = False
 
@@ -462,7 +465,51 @@ class AdaConRetinaNet(nn.Module):
         else:
             if self.enable_branch_controller:
                 return self._eval_branch_controller(targets, torch.argmax(self.branch_controller(features[-3]), dim=1))
-            
+            elif self.multib:
+                bc_out = self.branch_controller(features[-3].clone())
+                _, active_branches = torch.nonzero(bc_out > self.bc_thres, as_tuple=True)
+                if len(active_branches) == 0:
+                    active_branches = [torch.argmax(bc_out, dim=1)]
+                self.executed_branches += len(active_branches)
+                # print(active_branches.item(), bc_out)
+                combined_detections = []
+                for i in range(self.num_branches):
+                    if i in active_branches:
+                        self.active_branch = i
+                        # compute the retinanet heads outputs using the features
+                        head_outputs = self.heads[self.active_branch](features)
+                        # recover level sizes
+                        num_anchors_per_level = [x.size(2) * x.size(3) for x in features]
+                        HW = 0
+                        for v in num_anchors_per_level:
+                            HW += v
+                        HWA = head_outputs['cls_logits'].size(1)
+                        A = HWA // HW
+                        num_anchors_per_level = [hw * A for hw in num_anchors_per_level]
+
+                        # split outputs per level
+                        split_head_outputs: Dict[str, List[Tensor]] = {}
+                        for k in head_outputs:
+                            split_head_outputs[k] = list(head_outputs[k].split(num_anchors_per_level, dim=1))
+                        split_anchors = [list(a.split(num_anchors_per_level)) for a in anchors]
+
+                        # compute the detections
+                        detections = self.postprocess_detections(split_head_outputs, split_anchors, images.image_sizes)
+                        detections = self.transform.postprocess(detections, images.image_sizes, original_image_sizes)
+
+                        detections = self._map_outputs_from_cluster(detections)
+                        combined_detections.append(detections)
+                    
+                detections[0]['scores'] = torch.cat([detection[0]['scores'] for detection in combined_detections])
+                detections[0]['labels'] = torch.cat([detection[0]['labels'] for detection in combined_detections])
+                detections[0]['boxes'] = torch.cat([detection[0]['boxes'] for detection in combined_detections])
+                # print(len(detections[0]['boxes']))
+                keep = box_ops.batched_nms(detections[0]['boxes'], detections[0]['scores'], detections[0]['labels'], self.nms_thresh)
+                # print("keep",len(keep))
+                detections[0]['scores'] = detections[0]['scores'][keep]
+                detections[0]['labels'] = detections[0]['labels'][keep]
+                detections[0]['boxes'] = detections[0]['boxes'][keep]
+
             elif self.oracle:
                 combined_detections = []
                 for i in range(self.num_branches):
@@ -494,6 +541,11 @@ class AdaConRetinaNet(nn.Module):
                 detections[0]['scores'] = torch.cat([detection[0]['scores'] for detection in combined_detections])
                 detections[0]['labels'] = torch.cat([detection[0]['labels'] for detection in combined_detections])
                 detections[0]['boxes'] = torch.cat([detection[0]['boxes'] for detection in combined_detections])
+                keep = box_ops.batched_nms(detections[0]['boxes'], detections[0]['scores'], detections[0]['labels'], self.nms_thresh)
+                # print("keep",len(keep))
+                detections[0]['scores'] = detections[0]['scores'][keep]
+                detections[0]['labels'] = detections[0]['labels'][keep]
+                detections[0]['boxes'] = detections[0]['boxes'][keep]
             else:
                 if self.singleb:
                     bc_out = self.branch_controller(features[-3].clone())
@@ -567,16 +619,9 @@ class AdaConRetinaNetBranchController(nn.Module):
         conv.append(nn.ReLU())
         conv.append(nn.Conv2d(in_channels//4, in_channels//4, kernel_size=3, stride=2, padding=1))
         conv.append(nn.ReLU())
-        # for _ in range(3):
-        #     conv.append(nn.Conv2d(in_channels//2, in_channels//2, kernel_size=3, stride=2, padding=1))
-        #     conv.append(nn.ReLU())
+
         self.conv = nn.Sequential(*conv)
 
-        # for layer in self.conv.children():
-        #     if isinstance(layer, nn.Conv2d):
-        #         torch.nn.init.normal_(layer.weight, std=0.01)
-        #         torch.nn.init.constant_(layer.bias, 0)
-        
         self.fc1 = nn.Linear(64, 32)
         self.fc2 = nn.Linear(32, num_classes)
         self.num_classes = num_classes
@@ -591,7 +636,10 @@ class AdaConRetinaNetBranchController(nn.Module):
         x = x.view(x.shape[0], -1)
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
-        return F.softmax(x)
+        if self.training:
+            return F.softmax(x)
+        else:
+            return F.sigmoid(x)
 
 class AdaConRetinaNetClassificationHead(nn.Module):
     """

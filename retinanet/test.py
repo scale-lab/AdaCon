@@ -16,7 +16,7 @@ from adacon_model import retinanet_resnet50_fpn, adacon_retinanet_resnet50_fpn
 from coco_utils import get_coco, get_coco_kp
 
 from group_by_aspect_ratio import GroupedBatchSampler, create_aspect_ratio_groups
-from engine import run_on_device
+from engine import run_on_device, evaluate
 
 import presets
 import utils
@@ -164,6 +164,9 @@ def main(args):
             model.oracle = True
         if args.single:
             model.singleb = True
+        if args.multi:
+            model.multib = True
+        model.bc_thres = args.bc_thres
         count_parameters(model)
         model.to(device)
     else:
@@ -181,7 +184,8 @@ def main(args):
             count_parameters(model.roi_heads)
         model.to(device)
 
-    run_on_device(model, data_loader_test, device=device)
+    evaluate(model, data_loader_test, device=device)
+    print("Branches/Images", model.executed_branches, len(data_loader_test))
     return
 
 if __name__ == "__main__":
@@ -199,6 +203,8 @@ if __name__ == "__main__":
     parser.add_argument('--deploy', dest="deploy", type=str, help='combined weights for deployment')
     parser.add_argument('--trainable-backbone-layers', default=None, type=int,
                         help='number of trainable layers of backbone')
+    parser.add_argument('--bc-thres', dest="bc_thres", default=0.4, type=float,
+                        help='branch controller threshold')
     parser.add_argument(
         "--pretrained",
         dest="pretrained",
@@ -227,6 +233,12 @@ if __name__ == "__main__":
         "--single",
         dest="single",
         help="Enable single execution Adaptive mode",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--multi",
+        dest="multi",
+        help="Enable multi execution Adaptive mode",
         action="store_true",
     )
     parser.add_argument(

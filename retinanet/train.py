@@ -178,7 +178,8 @@ def main(args):
                                 backbone_weights=args.backbone_weights, bc_weights=args.branch_controller,
                                 min_size=min_size, max_size=max_size, ckpt=args.resume, deploy=args.deploy)
             freeze_adacon_retinanet_all_non_active_layers(model, active_branch, args.enable_branch_controller)
-            # get_deployable_model(model, len(clusters))
+            get_deployable_model(model, len(clusters))
+            exit()
         elif args.model == "rcnn":
             model = adacon_fasterrcnn_mobilenet_v3_large_320_fpn(clusters=clusters, active_branch=active_branch, num_branches=len(clusters),
                                 num_classes=num_classes, trainable_backbone_layers=args.trainable_backbone_layers,
@@ -194,6 +195,8 @@ def main(args):
             model.oracle = True
         if args.single:
             model.singleb = True
+        if args.multi:
+            model.multib = True
         count_parameters(model)
         model.to(device)
         # with torch.cuda.device(0):
@@ -388,6 +391,12 @@ if __name__ == "__main__":
         "--single",
         dest="single",
         help="Enable single execution Adaptive mode",
+        action="store_true",
+    )
+    parser.add_argument(
+        "--multi",
+        dest="multi",
+        help="Enable multi execution Adaptive mode",
         action="store_true",
     )
     parser.add_argument(
