@@ -178,8 +178,8 @@ def main(args):
                                 backbone_weights=args.backbone_weights, bc_weights=args.branch_controller,
                                 min_size=min_size, max_size=max_size, ckpt=args.resume, deploy=args.deploy)
             freeze_adacon_retinanet_all_non_active_layers(model, active_branch, args.enable_branch_controller)
-            get_deployable_model(model, len(clusters))
-            exit()
+            # get_deployable_model(model, len(clusters))
+            # exit()
         elif args.model == "rcnn":
             model = adacon_fasterrcnn_mobilenet_v3_large_320_fpn(clusters=clusters, active_branch=active_branch, num_branches=len(clusters),
                                 num_classes=num_classes, trainable_backbone_layers=args.trainable_backbone_layers,
@@ -199,6 +199,7 @@ def main(args):
             model.multib = True
         count_parameters(model)
         model.to(device)
+        
         # with torch.cuda.device(0):
         #     macs, params = get_model_complexity_info(model, (3, args.img_size, args.img_size), as_strings=True,
         #                                             print_per_layer_stat=True, verbose=True)

@@ -615,14 +615,23 @@ class AdaConRetinaNetBranchController(nn.Module):
         conv.append(nn.ReLU())
         conv.append(nn.Conv2d(in_channels//2, in_channels//2, kernel_size=3, stride=2, padding=1))
         conv.append(nn.ReLU())
-        conv.append(nn.Conv2d(in_channels//2, in_channels//4, kernel_size=3, stride=2, padding=1))
-        conv.append(nn.ReLU())
-        conv.append(nn.Conv2d(in_channels//4, in_channels//4, kernel_size=3, stride=2, padding=1))
-        conv.append(nn.ReLU())
+        if num_classes < 4:
+            conv.append(nn.Conv2d(in_channels//2, in_channels//4, kernel_size=3, stride=2, padding=1))
+            conv.append(nn.ReLU())
+            conv.append(nn.Conv2d(in_channels//4, in_channels//4, kernel_size=3, stride=2, padding=1))
+            conv.append(nn.ReLU())
+        else:
+            conv.append(nn.Conv2d(in_channels//2, in_channels//2, kernel_size=3, stride=2, padding=1))
+            conv.append(nn.ReLU())
+            conv.append(nn.Conv2d(in_channels//2, in_channels//2, kernel_size=3, stride=2, padding=1))
+            conv.append(nn.ReLU())
 
         self.conv = nn.Sequential(*conv)
 
-        self.fc1 = nn.Linear(64, 32)
+        if num_classes < 4:
+            self.fc1 = nn.Linear(64, 32)
+        else:
+            self.fc1 = nn.Linear(128, 32)
         self.fc2 = nn.Linear(32, num_classes)
         self.num_classes = num_classes
 
@@ -634,6 +643,7 @@ class AdaConRetinaNetBranchController(nn.Module):
     def forward(self, x):
         x = self.conv(x)
         x = x.view(x.shape[0], -1)
+        print(x.shape)
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         if self.training:

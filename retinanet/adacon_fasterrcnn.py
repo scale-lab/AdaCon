@@ -9,6 +9,7 @@ from torchvision.models.detection.faster_rcnn import TwoMLPHead, FastRCNNPredict
 # from torchvision.models.detection.generalized_rcnn import GeneralizedRCNN
 from adacon_model import get_class_to_cluster_map, get_cluster_to_class_map
 import torch.nn.functional as F
+from torchvision.ops import boxes as box_ops
 
 from collections import OrderedDict
 import torch
@@ -289,6 +290,11 @@ class AdaConFasterRCNN(nn.Module):
             detections[0]['scores'] = torch.cat([detection[0]['scores'] for detection in combined_detections])
             detections[0]['labels'] = torch.cat([detection[0]['labels'] for detection in combined_detections])
             detections[0]['boxes'] = torch.cat([detection[0]['boxes'] for detection in combined_detections])
+            keep = box_ops.batched_nms(detections[0]['boxes'], detections[0]['scores'], detections[0]['labels'], 0.5)
+            # print("keep",len(keep))
+            detections[0]['scores'] = detections[0]['scores'][keep]
+            detections[0]['labels'] = detections[0]['labels'][keep]
+            detections[0]['boxes'] = detections[0]['boxes'][keep]
         else:
             targets = self._get_cluster_targets(targets)
 
