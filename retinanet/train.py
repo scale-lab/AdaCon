@@ -11,7 +11,8 @@ import torch.utils.data
 import torchvision
 import torchvision.models.detection
 import torchvision.models.detection.mask_rcnn
-from adacon_fasterrcnn import adacon_fasterrcnn_mobilenet_v3_large_320_fpn, fasterrcnn_mobilenet_v3_large_320_fpn
+from torchvision.models.detection.faster_rcnn import fasterrcnn_mobilenet_v3_large_320_fpn
+from adacon_fasterrcnn import adacon_fasterrcnn_mobilenet_v3_large_320_fpn
 from adacon_model import retinanet_resnet50_fpn, adacon_retinanet_resnet50_fpn
 from coco_utils import get_coco, get_coco_kp
 
@@ -213,7 +214,9 @@ def main(args):
                             min_size=min_size, max_size=max_size, ckpt=args.resume)
         
         elif args.model == "rcnn":
-            model = fasterrcnn_mobilenet_v3_large_320_fpn(pretrained=args.pretrained, min_size=min_size, max_size=max_size)
+            model = fasterrcnn_mobilenet_v3_large_320_fpn(num_classes=num_classes, trainable_backbone_layers=args.trainable_backbone_layers,
+                                                        pretrained=args.pretrained, pretrained_backbone=args.pretrained_backbone, 
+                                                        min_size=min_size, max_size=max_size)
             count_parameters(model)
             count_parameters(model.backbone)
             count_parameters(model.rpn)

@@ -26,7 +26,7 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq):
         warmup_factor = 1. / 1000
         warmup_iters = min(1000, len(data_loader) - 1)
 
-        # lr_scheduler = utils.warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor)
+        lr_scheduler = utils.warmup_lr_scheduler(optimizer, warmup_iters, warmup_factor)
 
     for i, (images, targets) in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
         images = list(image.to(device) for image in images)
@@ -51,8 +51,8 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq):
         losses.backward()
         optimizer.step()
 
-        # if lr_scheduler is not None:
-        #     lr_scheduler.step()
+        if lr_scheduler is not None:
+            lr_scheduler.step()
 
         metric_logger.update(loss=losses_reduced, **loss_dict_reduced)
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
