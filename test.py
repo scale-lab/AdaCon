@@ -6,7 +6,27 @@ from torch.utils.data import DataLoader
 from models import *
 from utils.datasets import *
 from utils.utils import *
+from flops_counter import get_model_complexity_info
 
+def get_macs_and_params(backbone, branch_controller, branches, img_sz):
+    with torch.cuda.device(0):
+        if img_sz == 416:
+            backbone_out_dim = 13
+        else:
+            backbone_out_dim = 10
+        macs, params = get_model_complexity_info(backbone, (3, img_sz, img_sz), as_strings=True,
+                                                print_per_layer_stat=True, verbose=True)
+        print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
+        print('{:<30}  {:<8}'.format('Number of parameters: ', params))
+        macs, params = get_model_complexity_info(branch_controller, (1024, backbone_out_dim, backbone_out_dim), as_strings=True,
+                                                print_per_layer_stat=True, verbose=True)
+        print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
+        print('{:<30}  {:<8}'.format('Number of parameters: ', params))
+        macs, params = get_model_complexity_info(branches[0], (1024, backbone_out_dim, backbone_out_dim), as_strings=True,
+                                                print_per_layer_stat=True, verbose=True,out=backbone.layer_outputs)
+        print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
+        print('{:<30}  {:<8}'.format('Number of parameters: ', params))
+        backbone.layer_outputs = []
 
 def test(cfg,
          data,
@@ -303,6 +323,8 @@ def test_branches(data,
     iouv = iouv[0].view(1)  # comment for mAP@0.5:0.95
     niou = iouv.numel()
 
+    get_macs_and_params(backbone, branch_controller, branches, imgsz)
+        
     # Dataloader
     if dataloader is None:
         dataset = LoadImagesAndLabels(path, imgsz, batch_size, rect=False, single_cls=single_cls, pad=0.5)
@@ -333,7 +355,6 @@ def test_branches(data,
             # Run model
             t = torch_utils.time_synchronized()
             backbone_out = backbone(imgs)
-
             # Select mode
             if not opt.oracle:
                 if opt.single:
@@ -341,6 +362,8 @@ def test_branches(data,
                 elif opt.multi:
                     class_out = branch_controller(backbone_out, [])
                     dominent_clus = torch.where(class_out > opt.bc_thres)[1]
+                    if len(dominent_clus) == 0:
+                        dominent_clus = [torch.argmax(class_out)]
             else:
                 ts = targets[:, 1].tolist()
                 cluster_cnt = np.zeros(len(clusters))
@@ -571,28 +594,3 @@ if __name__ == '__main__':
              opt.single_cls,
              opt.augment,
              device=opt.device)
-
-    # elif opt.task == 'test_dynamic_single':  # For debugging
-    #     clusters = parse_clusters_config(opt.clusters)
-    #     class_to_cluster_list = get_class_to_cluster_map(clusters)
-    #     cluster_idx=0,
-    #     # Initialize model
-    #     backbone = Backbone(opt.backbone_cfg)
-    #     backbone.load_darknet_weights(opt.backbone_weights,75)
-    #     backbone.eval()
-
-    #     test(opt.cfg,
-    #          opt.data,
-    #          opt.weights,
-    #          opt.batch_size,
-    #          opt.img_size,
-    #          opt.conf_thres,
-    #          opt.iou_thres,
-    #          opt.save_json,
-    #          opt.single_cls,
-    #          opt.augment,
-    #          device=opt.device,
-    #          clusters=clusters,
-    #          class_to_cluster_list=class_to_cluster_list,
-    #          cluster_idx=int(opt.cluster_idx),
-    #          backbone=backbone)
