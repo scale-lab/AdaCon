@@ -7,7 +7,7 @@ from models import *
 from utils.datasets import *
 from utils.utils import *
 from flops_counter import get_model_complexity_info
-
+from profiler import Profiler
 def get_macs_and_params(backbone, branch_controller, branches, img_sz):
     with torch.cuda.device(0):
         if img_sz == 416:
@@ -108,6 +108,7 @@ def test(cfg,
     p, r, f1, mp, mr, map, mf1, t0, t1 = 0., 0., 0., 0., 0., 0., 0., 0., 0.
     loss = torch.zeros(3, device=device)
     jdict, stats, ap, ap_class = [], [], [], []
+    latency = []
     for batch_i, (imgs, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
         imgs = imgs.to(device).float() / 255.0  # uint8 to float32, 0 - 255 to 0.0 - 1.0
         targets = targets.to(device)
@@ -146,7 +147,7 @@ def test(cfg,
             t = torch_utils.time_synchronized()
             output = non_max_suppression(inf_out, conf_thres=conf_thres, iou_thres=iou_thres, multi_label=multi_label)
             t1 += torch_utils.time_synchronized() - t
-
+            latency.append(t0+t1)
         # Statistics per image
         for si, pred in enumerate(output):
             labels = targets[targets[:, 0] == si, 1:]
@@ -218,6 +219,7 @@ def test(cfg,
             f = 'test_batch%g_pred.jpg' % batch_i
             plot_images(imgs, output_to_target(output, width, height), paths=paths, names=names, fname=f)  # predictions
 
+    print("Average Latency",sum(latency)/len(latency))
     # Compute statistics
     stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
     if len(stats):
@@ -344,6 +346,7 @@ def test_branches(data,
     p, r, f1, mp, mr, map, mf1, t0, t1 = 0., 0., 0., 0., 0., 0., 0., 0., 0.
     loss = torch.zeros(3, device=device)
     jdict, stats, ap, ap_class = [], [], [], []
+    latency = []
     for batch_i, (imgs, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
         imgs = imgs.to(device).float() / 255.0  # uint8 to float32, 0 - 255 to 0.0 - 1.0
         targets = targets.to(device)
@@ -398,7 +401,7 @@ def test_branches(data,
             t = torch_utils.time_synchronized()
             output = non_max_suppression(inf_out, conf_thres=conf_thres, iou_thres=iou_thres, multi_label=multi_label)
             t1 += torch_utils.time_synchronized() - t
-
+            latency.append(t0+t1)
         # Statistics per image
         for si, pred in enumerate(output):
             labels = targets[targets[:, 0] == si, 1:]
@@ -469,6 +472,7 @@ def test_branches(data,
         #     f = 'test_batch%g_pred.jpg' % batch_i
         #     plot_images(imgs, output_to_target(output, width, height), paths=paths, names=names, fname=f)  # predictions
 
+    print("Average Latency",sum(latency)/len(latency))
     # Compute statistics
     stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
     if len(stats):
