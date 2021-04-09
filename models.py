@@ -604,7 +604,7 @@ class BranchController(nn.Module):
         
         self.nc = out_classes
         self.seen = 0
-        self.fc1 = nn.Linear(64, 32)
+        self.fc1 = nn.Linear(128, 32)
         self.fc2 = nn.Linear(32, self.nc)
 
     def forward(self, x, layer_outputs=None):
@@ -618,7 +618,8 @@ class BranchController(nn.Module):
             layer_outputs.append(x)
 
             #print(i, x.shape, "clus")
-        x = x.view(-1, self.num_flat_features(x))
+
+        x = x.view(x.shape[0], -1)
         x = F.leaky_relu(self.fc1(x),0.1)
         x = self.fc2(x)
         if self.training:
