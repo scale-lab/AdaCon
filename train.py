@@ -232,7 +232,7 @@ def train(hyp):
     start_epoch = 0
     best_fitness = 0.0
     # attempt_download(weights)
-    if weights.endswith('.pt'):  # pytorch format
+    if weights and weights.endswith('.pt'):  # pytorch format
         # possible weights are '*.pt', 'yolov3-spp.pt', 'yolov3-tiny.pt' etc.
         ckpt = torch.load(weights, map_location=device)
 
@@ -264,7 +264,7 @@ def train(hyp):
 
         del ckpt
 
-    elif len(weights) > 0:  # darknet format
+    elif weights and len(weights) > 0:  # darknet format
         # possible weights are '*.weights', 'yolov3-tiny.conv.15',  'darknet53.conv.74' etc.
         print(weights)
         load_darknet_weights(model, weights)
@@ -599,8 +599,10 @@ if __name__ == '__main__':
 
     else:
         opt.cfg = check_file(model_args['cfg'])  # check file
-        opt.weights = check_file(model_args['weights'])  # check file
-        opt.weights = last if opt.resume and not opt.weights else opt.weights
+        opt.weights = None
+        if 'weights' in model_args:
+            opt.weights = check_file(model_args['weights'])  # check file
+            opt.weights = last if opt.resume and not opt.weights else opt.weights
     
     opt.img_size.extend([opt.img_size[-1]] * (3 - len(opt.img_size)))  # extend to 3 sizes (min, max, test)
     device = torch_utils.select_device(opt.device, apex=mixed_precision, batch_size=opt.batch_size)
