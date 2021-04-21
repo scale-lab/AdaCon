@@ -73,7 +73,7 @@ def _remove_common_classes(objects_adjacency_matrix, common_classes, num_classes
     # Get mapping to classes idx after removing common classes
     classes_idx_dict = {}
     j = 0
-    for i in range(num_classes):
+    for i in range(objects_adjacency_matrix.shape[0]):
         if i not in common_classes:
             classes_idx_dict[j] = i
             j += 1
@@ -181,8 +181,8 @@ def _plot_graph(s_adjmatrix, positions, clusters, classes_ids, common_classes, c
             labels[j] = classes_names[i]
             j += 1
 
-    nx.draw_networkx_nodes(graph,  pos=positions, node_size=700, node_color=colors,cmap=cm.cool)
-    nx.draw_networkx_labels(graph,  pos=positions, labels=labels, font_size=12)
+    nx.draw_networkx_nodes(graph, pos=positions, node_size=700, node_color=colors,cmap=cm.Set3)
+    nx.draw_networkx_labels(graph, pos=positions, labels=labels, font_size=12)
 
     plt.savefig(fig_name)
 
@@ -211,9 +211,10 @@ if __name__ == "__main__":
                                             num_classes=num_classes, 
                                             co_occurance_out_file=opt.co_occurance_out)
 
-    # chosen_classes = [0, 2, 3, 5, 7, 9, 12, 18, 17, 19, 26, 41, 42, 43, 44, 
-    #                   45, 48, 57, 63, 62, 64, 65, 66, 68, 69, 71, 73]
-    chosen_classes = np.arange(80)
+    chosen_classes = [0, 2, 3, 5, 7, 9, 10, 11, 12, 18, 17, 19, 26, 22, 41, 42, 43, 44, 
+                      45, 48, 57, 63, 62, 64, 65, 66, 68, 69, 71, 73]
+    print("Chosen subset:", len(chosen_classes))
+    # chosen_classes = np.arange(80)
     classes_names = np.asarray(classes_names)
 
     if len(chosen_classes) < num_classes:
@@ -223,7 +224,7 @@ if __name__ == "__main__":
 
     # Get Common Classes
     common_classes = _get_common_classes(adjacency_matrix)
-    print("Number of common_classes = ", len(common_classes))
+    print("Number of common_classes = ", len(common_classes), classes_names[common_classes])
     classes_idx_dict, adjacency_matrix = _remove_common_classes(adjacency_matrix, 
                                                                 common_classes=common_classes,
                                                                 num_classes=num_classes)
