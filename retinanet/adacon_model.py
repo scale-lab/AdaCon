@@ -52,7 +52,6 @@ model_urls = {
         'https://download.pytorch.org/models/retinanet_resnet50_fpn_coco-eeacb38b.pth',
 }
 
-
 def retinanet_resnet50_fpn(pretrained=False, progress=True,
                            num_classes=91, pretrained_backbone=True, trainable_backbone_layers=None, 
                            ckpt=None, backbone_weights=None, head_weights=None, **kwargs):
@@ -168,7 +167,6 @@ def retinanet_mobilenet_fpn(pretrained=False, progress=True,
     #     overwrite_eps(model, 0.0)
     return model
 
-
 class AdaConRetinaNet(nn.Module):
     __annotations__ = {
         'box_coder': det_utils.BoxCoder,
@@ -224,7 +222,8 @@ class AdaConRetinaNet(nn.Module):
             heads = nn.ModuleList()
             for i in range(num_branches):
                 heads.append(AdaConRetinaNetHead(backbone.out_channels, \
-                        anchor_generator.num_anchors_per_location()[0], len(self.clusters[i])))
+                        anchor_generator.num_anchors_per_location()[0], \
+                        len(self.clusters[i]), comp_factor=len(self.clusters)))
         self.heads = heads
         print(backbone.out_channels, "backbone.out_channels")
         self.branch_controller = AdaConRetinaNetBranchController(backbone.out_channels, len(self.clusters))
@@ -588,10 +587,10 @@ class AdaConRetinaNetHead(nn.Module):
         num_classes (int): number of classes to be predicted
     """
 
-    def __init__(self, in_channels, num_anchors, num_classes):
+    def __init__(self, in_channels, num_anchors, num_classes, comp_factor):
         super().__init__()
-        self.classification_head = AdaConRetinaNetClassificationHead(in_channels, num_anchors, num_classes)
-        self.regression_head = AdaConRetinaNetRegressionHead(in_channels, num_anchors)
+        self.classification_head = AdaConRetinaNetClassificationHead(in_channels, num_anchors, num_classes, comp_factor=comp_factor)
+        self.regression_head = AdaConRetinaNetRegressionHead(in_channels, num_anchors, comp_factor=comp_factor)
 
     def compute_loss(self, targets, head_outputs, anchors, matched_idxs):
         # type: (List[Dict[str, Tensor]], Dict[str, Tensor], List[Tensor], List[Tensor]) -> Dict[str, Tensor]
@@ -660,11 +659,10 @@ class AdaConRetinaNetClassificationHead(nn.Module):
         num_classes (int): number of classes to be predicted
     """
 
-    def __init__(self, in_channels, num_anchors, num_classes, prior_probability=0.01):
+    def __init__(self, in_channels, num_anchors, num_classes, comp_factor = 2, prior_probability=0.01):
         super().__init__()
 
         conv = []
-        comp_factor = 2 # Compression Factor
         conv.append(nn.Conv2d(in_channels, in_channels//comp_factor, kernel_size=3, stride=1, padding=1))
         conv.append(nn.ReLU())
         for _ in range(3):
@@ -738,7 +736,6 @@ class AdaConRetinaNetClassificationHead(nn.Module):
 
         return torch.cat(all_cls_logits, dim=1)
 
-
 class AdaConRetinaNetRegressionHead(nn.Module):
     """
     A regression head for use in RetinaNet.
@@ -750,11 +747,10 @@ class AdaConRetinaNetRegressionHead(nn.Module):
         'box_coder': det_utils.BoxCoder,
     }
 
-    def __init__(self, in_channels, num_anchors):
+    def __init__(self, in_channels, num_anchors, comp_factor=2):
         super().__init__()
 
         conv = []
-        comp_factor = 2 # Compression Factor
         conv.append(nn.Conv2d(in_channels, in_channels//comp_factor, kernel_size=3, stride=1, padding=1))
         conv.append(nn.ReLU())
         for _ in range(3):
