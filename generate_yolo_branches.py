@@ -32,7 +32,6 @@ if __name__ == "__main__":
     parser.add_argument("--cfg", type=str, default="cfg/yolov3.cfg", help="path to model definition file")
     parser.add_argument("--data", type=str, default="data/coco2014.data", help="path to data config file")
     parser.add_argument("--clusters_path", type=str, default="clusters.data", help="clusters file path")
-    parser.add_argument("--ckpt_prefix", type=str, default="", help="pre for checkpoints files")
 
     opt = parser.parse_args()
     print(opt)
@@ -87,23 +86,14 @@ if __name__ == "__main__":
                     start_filter_size = int(value)
                     if math.ceil(Log2(start_filter_size)) == math.floor(Log2(start_filter_size)):
                         search_space_per_layer = []
-                        for i in range(1,3):
-                            search_space_per_layer.append(int(start_filter_size/(2**i)))
+                        search_space_per_layer.append(start_filter_size//num_branches)
                         search_space.append(search_space_per_layer)
     
     print(search_space)
-    # Choose 4x compressed for the first 6 layers and 2x compressed for the rest of the layers
     
     param = []
     for i, l in enumerate(search_space):
-        if i < 6:
-            param.append(l[1])
-            if num_branches < 4:
-                param.append(l[0])
-            else:
-                param.append(l[1])      
-        else:
-            param.append(l[0])
+        param.append(l[0])
 
     for bnch_num in range(num_branches):
         print(bnch_num)
@@ -112,7 +102,7 @@ if __name__ == "__main__":
         # Write all found architectures
 
         print("Writing file with params ", param)
-        file_name = "arch_bnch_" + str(bnch_num+1) + "of" +  str(num_branches) + "_arch2.cfg"
+        file_name = "arch_bnch_" + str(bnch_num+1) + "of" +  str(num_branches) + "_arch.cfg"
         new_module_defs = module_defs.copy()
 
         file = open(output_path+file_name, 'w')
@@ -151,15 +141,3 @@ if __name__ == "__main__":
             file.write("\n")
 
         file.close()
-
-            # model = Darknet(output_path+file_name).to(device)
-            # # print("MODEL CREATED")
-            # with torch.cuda.device(0):
-            #     macs, params = get_model_complexity_info(model, (3, 416, 416), print_per_layer_stat = False)
-            #     macs = float(macs.split(" ")[0])*(10**9)
-            #     params = float(params.split(" ")[0])*(10**6)
-            #     print(macs, mac_backbone + mac_limit_per_branch[0], params, params_backbone + param_limit_per_branch[bnch_num])
-
-            # if (macs > mac_backbone + mac_limit_per_branch[0]) or (params > params_backbone + param_limit_per_branch[bnch_num]):
-            #         print(file_name, "REJECTED")
-            #         os.remove(output_path+file_name)
