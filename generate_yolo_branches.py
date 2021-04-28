@@ -120,7 +120,7 @@ if __name__ == "__main__":
 
                 else:
                     if change_filt == True and key == "filters":
-                        if math.ceil(Log2(int(module[key]))) == math.floor(Log2(int(module[key]))):
+                        if idx not in [82, 94, 106]: # Number of filters at those layers depends on the number of classes
                             module[key] = param[filt_idx]
                             filt_idx += 1
                             change_filt = False
