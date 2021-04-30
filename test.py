@@ -414,7 +414,6 @@ def test_branches(data,
             inf_out = torch.cat(all_outputs, 1)
             t0 += torch_utils.time_synchronized() - t
             # Run NMS
-            t = torch_utils.time_synchronized()
             output = non_max_suppression(inf_out, conf_thres=conf_thres, iou_thres=iou_thres, multi_label=multi_label)
             t1 += torch_utils.time_synchronized() - t
             latency.append(time.time() - t)
