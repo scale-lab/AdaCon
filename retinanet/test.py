@@ -184,7 +184,10 @@ def main(args):
             count_parameters(model.roi_heads)
         model.to(device)
 
-    evaluate(model, data_loader_test, device=device)
+    if args.profile:
+        run_on_device(model, data_loader_test, device=device)
+    else:
+        evaluate(model, data_loader_test, device=device)
     print("Branches/Images", model.executed_branches, len(data_loader_test))
     return
 
@@ -250,6 +253,12 @@ if __name__ == "__main__":
         "--img-size",
         dest="img_size", type=int, default=416,
         help="Input image size to model"
+    )
+    parser.add_argument(
+        "--profile",
+        dest="profile",
+        help="Enable profiling Adaptive mode",
+        action="store_true",
     )
     parser.add_argument('--active-branch', dest="active_branch", default=0, type=int,
                         help='active branch in the adaptive model')

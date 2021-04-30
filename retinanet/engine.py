@@ -14,6 +14,7 @@ from coco_eval import CocoEvaluator
 import utils
 import json
 from tqdm import tqdm
+from profiler import Profiler
 
 def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq):
     model.train()
@@ -124,8 +125,20 @@ def evaluate(model, data_loader, device):
 @torch.no_grad()
 def run_on_device(model, data_loader, device):
     model.eval()
+    latency = []
+    profiler = Profiler(platform='nano')
+    profiler.start()
+
     for i, (images, targets) in enumerate(tqdm(data_loader)):
+        if i == 100:
+            break
         images = list(img.to(device) for img in images)
         torch.cuda.synchronize()
         model_time = time.time()
         outputs = model(images)
+        latency.append(time.time() - model_time)
+    latency = latency[50:]
+    print("Average Latency",sum(latency)/len(latency))
+    gpu_power, cpu_power, total_power = profiler.end()
+    print("GPU power", gpu_power, "CPU power", cpu_power, "Total power", total_power)
+

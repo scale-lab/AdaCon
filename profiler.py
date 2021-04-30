@@ -63,7 +63,10 @@ class Profiler:
             power = float(match.group('cpu_power'))
             cpu_power.append(power)
             total_power.append(cpu_power[-1]+gpu_power[-1])
-
+        # Discard the first 50 readings - warmup
+        gpu_power = gpu_power[50:]
+        cpu_power = cpu_power[50:]
+        total_power = total_power[50:]
         return sum(gpu_power)/len(gpu_power), sum(cpu_power)/len(cpu_power), sum(total_power)/len(total_power)
 
 

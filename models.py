@@ -604,7 +604,7 @@ class BranchController(nn.Module):
         
         self.nc = out_classes
         self.seen = 0
-        self.fc1 = nn.Linear(128, 32)
+        self.fc1 = nn.Linear(64, 32)
         self.fc2 = nn.Linear(32, self.nc)
 
     def forward(self, x, layer_outputs=None):

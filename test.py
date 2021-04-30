@@ -6,9 +6,11 @@ from torch.utils.data import DataLoader
 from models import *
 from utils.datasets import *
 from utils.utils import *
-from flops_counter import get_model_complexity_info
 from profiler import Profiler
+import time
+
 def get_macs_and_params(backbone, branch_controller, branches, img_sz):
+    from flops_counter import get_model_complexity_info
     with torch.cuda.device(0):
         if img_sz == 416:
             backbone_out_dim = 13
@@ -109,6 +111,10 @@ def test(cfg,
     loss = torch.zeros(3, device=device)
     jdict, stats, ap, ap_class = [], [], [], []
     latency = []
+    if opt.profile:
+        profiler = Profiler(platform='nano')
+        profiler.start()
+    
     for batch_i, (imgs, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
         imgs = imgs.to(device).float() / 255.0  # uint8 to float32, 0 - 255 to 0.0 - 1.0
         targets = targets.to(device)
@@ -118,7 +124,7 @@ def test(cfg,
         # Disable gradients
         with torch.no_grad():
             # Run model
-            t = torch_utils.time_synchronized()
+            t = time.time()
             if backbone is None:
                 inf_out, train_out = model(imgs, augment=augment)  # inference and training outputs
                 t0 += torch_utils.time_synchronized() - t
@@ -144,10 +150,16 @@ def test(cfg,
                 loss += compute_loss(train_out, targets, model)[1][:3]  # GIoU, obj, cls
 
             # Run NMS
-            t = torch_utils.time_synchronized()
             output = non_max_suppression(inf_out, conf_thres=conf_thres, iou_thres=iou_thres, multi_label=multi_label)
             t1 += torch_utils.time_synchronized() - t
-            latency.append(t0+t1)
+            latency.append(time.time() - t)
+        
+        if opt.profile:
+            if batch_i == 100:
+                break
+            else:
+                continue
+        
         # Statistics per image
         for si, pred in enumerate(output):
             labels = targets[targets[:, 0] == si, 1:]
@@ -212,7 +224,14 @@ def test(cfg,
             # Append statistics (correct, conf, pcls, tcls)
             stats.append((correct.cpu(), pred[:, 4].cpu(), pred[:, 5].cpu(), tcls))
 
+    latency = latency[50:]
     print("Average Latency",sum(latency)/len(latency))
+
+    if opt.profile:
+        gpu_power, cpu_power, total_power = profiler.end()
+        print("GPU power", gpu_power, "CPU power", cpu_power, "Total power", total_power)
+        exit()
+
     # Compute statistics
     stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
     if len(stats):
@@ -318,7 +337,7 @@ def test_branches(data,
     iouv = iouv[0].view(1)  # comment for mAP@0.5:0.95
     niou = iouv.numel()
 
-    get_macs_and_params(backbone, branch_controller, branches, imgsz)
+    #get_macs_and_params(backbone, branch_controller, branches, imgsz)
         
     # Dataloader
     if dataloader is None:
@@ -340,6 +359,10 @@ def test_branches(data,
     loss = torch.zeros(3, device=device)
     jdict, stats, ap, ap_class = [], [], [], []
     latency = []
+    if opt.profile:
+        profiler = Profiler(platform='nano')
+        profiler.start()
+        
     for batch_i, (imgs, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
         imgs = imgs.to(device).float() / 255.0  # uint8 to float32, 0 - 255 to 0.0 - 1.0
         targets = targets.to(device)
@@ -349,7 +372,7 @@ def test_branches(data,
         # Disable gradients
         with torch.no_grad():
             # Run model
-            t = torch_utils.time_synchronized()
+            t = time.time()
             backbone_out = backbone(imgs)
             # Select mode
             if not opt.oracle:
@@ -394,7 +417,14 @@ def test_branches(data,
             t = torch_utils.time_synchronized()
             output = non_max_suppression(inf_out, conf_thres=conf_thres, iou_thres=iou_thres, multi_label=multi_label)
             t1 += torch_utils.time_synchronized() - t
-            latency.append(t0+t1)
+            latency.append(time.time() - t)
+
+        if opt.profile:
+            if batch_i == 100:
+                break
+            else:
+                continue
+    
         # Statistics per image
         for si, pred in enumerate(output):
             labels = targets[targets[:, 0] == si, 1:]
@@ -458,14 +488,15 @@ def test_branches(data,
 
             # Append statistics (correct, conf, pcls, tcls)
             stats.append((correct.cpu(), pred[:, 4].cpu(), pred[:, 5].cpu(), tcls))
-        # Plot images
-        # if batch_i < 1:
-        #     f = 'test_batch%g_gt.jpg' % batch_i  # filename
-        #     plot_images(imgs, targets, paths=paths, names=names, fname=f)  # ground truth
-        #     f = 'test_batch%g_pred.jpg' % batch_i
-        #     plot_images(imgs, output_to_target(output, width, height), paths=paths, names=names, fname=f)  # predictions
 
+    latency = latency[50:]
     print("Average Latency",sum(latency)/len(latency))
+
+    if opt.profile:
+        gpu_power, cpu_power, total_power = profiler.end()
+        print("GPU power", gpu_power, "CPU power", cpu_power, "Total power", total_power)
+        exit()
+
     # Compute statistics
     stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
     if len(stats):
@@ -539,6 +570,7 @@ if __name__ == '__main__':
     parser.add_argument('--bc-thres', type=float, default=0.4, help='object confidence threshold')
     parser.add_argument('--adaptive', action='store_true', help='train adaptive model')
     parser.add_argument('--model', type=str, default='model.args', help='File for the model configurations')
+    parser.add_argument('--profile', action='store_true', help='profile adaptive model')
 
     opt = parser.parse_args()
     opt.save_json = opt.save_json or any([x in opt.data for x in ['coco.data', 'coco2014.data', 'coco2017.data']])
