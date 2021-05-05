@@ -221,9 +221,10 @@ class AdaConRetinaNet(nn.Module):
         if heads is None:
             heads = nn.ModuleList()
             for i in range(num_branches):
+                comp_factor = 80/len(clusters[i]) # Change number w/ dataset (80 is # classes for coco)
                 heads.append(AdaConRetinaNetHead(backbone.out_channels, \
                         anchor_generator.num_anchors_per_location()[0], \
-                        len(self.clusters[i]), comp_factor=len(self.clusters)))
+                        len(self.clusters[i]), comp_factor=comp_factor))
         self.heads = heads
         print(backbone.out_channels, "backbone.out_channels")
         self.branch_controller = AdaConRetinaNetBranchController(backbone.out_channels, len(self.clusters))
@@ -642,7 +643,6 @@ class AdaConRetinaNetBranchController(nn.Module):
     def forward(self, x):
         x = self.conv(x)
         x = x.view(x.shape[0], -1)
-        print(x.shape)
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         if self.training:
@@ -663,10 +663,10 @@ class AdaConRetinaNetClassificationHead(nn.Module):
         super().__init__()
 
         conv = []
-        conv.append(nn.Conv2d(in_channels, in_channels//comp_factor, kernel_size=3, stride=1, padding=1))
+        conv.append(nn.Conv2d(in_channels, int(in_channels/comp_factor), kernel_size=3, stride=1, padding=1))
         conv.append(nn.ReLU())
         for _ in range(3):
-            conv.append(nn.Conv2d(in_channels//comp_factor, in_channels//comp_factor, kernel_size=3, stride=1, padding=1))
+            conv.append(nn.Conv2d(int(in_channels/comp_factor), int(in_channels/comp_factor), kernel_size=3, stride=1, padding=1))
             conv.append(nn.ReLU())
         self.conv = nn.Sequential(*conv)
 
@@ -675,7 +675,7 @@ class AdaConRetinaNetClassificationHead(nn.Module):
                 torch.nn.init.normal_(layer.weight, std=0.01)
                 torch.nn.init.constant_(layer.bias, 0)
 
-        self.cls_logits = nn.Conv2d(in_channels//comp_factor, num_anchors * num_classes, kernel_size=3, stride=1, padding=1)
+        self.cls_logits = nn.Conv2d(int(in_channels/comp_factor), num_anchors * num_classes, kernel_size=3, stride=1, padding=1)
         torch.nn.init.normal_(self.cls_logits.weight, std=0.01)
         torch.nn.init.constant_(self.cls_logits.bias, -math.log((1 - prior_probability) / prior_probability))
 
@@ -751,14 +751,14 @@ class AdaConRetinaNetRegressionHead(nn.Module):
         super().__init__()
 
         conv = []
-        conv.append(nn.Conv2d(in_channels, in_channels//comp_factor, kernel_size=3, stride=1, padding=1))
+        conv.append(nn.Conv2d(in_channels, int(in_channels/comp_factor), kernel_size=3, stride=1, padding=1))
         conv.append(nn.ReLU())
         for _ in range(3):
-            conv.append(nn.Conv2d(in_channels//comp_factor, in_channels//comp_factor, kernel_size=3, stride=1, padding=1))
+            conv.append(nn.Conv2d(int(in_channels/comp_factor), int(in_channels/comp_factor), kernel_size=3, stride=1, padding=1))
             conv.append(nn.ReLU())
         self.conv = nn.Sequential(*conv)
 
-        self.bbox_reg = nn.Conv2d(in_channels//comp_factor, num_anchors * 4, kernel_size=3, stride=1, padding=1)
+        self.bbox_reg = nn.Conv2d(int(in_channels/comp_factor), num_anchors * 4, kernel_size=3, stride=1, padding=1)
         torch.nn.init.normal_(self.bbox_reg.weight, std=0.01)
         torch.nn.init.zeros_(self.bbox_reg.bias)
 

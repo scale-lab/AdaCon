@@ -2,7 +2,8 @@ import subprocess
 import re
 import time
 import torch 
-
+from thop import profile
+from thop import clever_format
 
 class Profiler:
     def __init__(self, platform='server'):
@@ -69,6 +70,25 @@ class Profiler:
         total_power = total_power[50:]
         return sum(gpu_power)/len(gpu_power), sum(cpu_power)/len(cpu_power), sum(total_power)/len(total_power)
 
+    def profile_params(self, model, num_branches = 1):
+        def count_parameters(model):
+            total_params = 0
+            for name, parameter in model.named_parameters():
+                param = parameter.numel()
+                total_params+=param
+            return total_params
+        backbone_params = count_parameters(model.backbone)/(1000*1000)
+        total_params = count_parameters(model)/(1000*1000)
+        heads_params = (total_params - backbone_params)/num_branches
+        return total_params, backbone_params, heads_params
+
+    def profile_macs(self, model, input, num_branches = 1):
+        total_macs, _ = profile(model, inputs=(input, ), verbose=False)
+        total_macs = total_macs/(1024*1024*1024)
+        backbone_macs, _ = profile(model.backbone, inputs=(input, ), verbose=False)
+        backbone_macs = backbone_macs/(1024*1024*1024)
+        
+        return total_macs, backbone_macs, total_macs - backbone_macs
 
 if __name__ == '__main__':
     from torch import randn, randint

@@ -22,7 +22,7 @@ from engine import train_one_epoch, evaluate
 import presets
 import utils
 from prettytable import PrettyTable
-from ptflops import get_model_complexity_info
+from profiler import Profiler
 
 def get_image_size_range(img_size):
     if img_size == 416:
@@ -60,7 +60,6 @@ def count_parameters(model):
         table.add_row([name, param])
         total_params+=param
     print(table)
-    print("Total Trainable Params: ", total_params)
     return total_params
 
 def freeze_adacon_retinanet_all_non_active_layers(model, active_branch, train_bc):
@@ -198,14 +197,16 @@ def main(args):
             model.singleb = True
         if args.multi:
             model.multib = True
-        count_parameters(model)
+
         model.to(device)
-        
-        # with torch.cuda.device(0):
-        #     macs, params = get_model_complexity_info(model, (3, args.img_size, args.img_size), as_strings=True,
-        #                                             print_per_layer_stat=True, verbose=True)
-        #     print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
-        #     print('{:<30}  {:<8}'.format('Number of parameters: ', params))
+        profiler = Profiler()
+        params = profiler.profile_params(model, len(clusters))
+        print(params)
+        input = torch.randn(1, 3, args.img_size, args.img_size)
+        input = input.to(device)
+        macs = profiler.profile_macs(model, input, len(clusters))
+        print(macs)
+
     else:
         if args.model == "retinanet":
             model = retinanet_resnet50_fpn(num_classes=num_classes, trainable_backbone_layers=args.trainable_backbone_layers,
