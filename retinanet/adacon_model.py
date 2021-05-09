@@ -458,7 +458,7 @@ class AdaConRetinaNetHead(nn.Module):
     def __init__(self, in_channels, num_anchors, num_classes):
         super().__init__()
         self.classification_head = AdaConRetinaNetClassificationHead(in_channels, num_anchors, num_classes)
-        self.regression_head = AdaConRetinaNetRegressionHead(in_channels, num_anchors)
+        self.regression_head = AdaConRetinaNetRegressionHead(in_channels, num_anchors, num_classes)
 
     def compute_loss(self, targets, head_outputs, anchors, matched_idxs):
         # type: (List[Dict[str, Tensor]], Dict[str, Tensor], List[Tensor], List[Tensor]) -> Dict[str, Tensor]
@@ -488,11 +488,11 @@ class AdaConRetinaNetClassificationHead(nn.Module):
         super().__init__()
 
         conv = []
-
-        conv.append(nn.Conv2d(in_channels, in_channels//2, kernel_size=3, stride=1, padding=1))
+        comp_factor = 80/num_classes
+        conv.append(nn.Conv2d(in_channels, int(in_channels/comp_factor), kernel_size=3, stride=1, padding=1))
         conv.append(nn.ReLU())
         for _ in range(3):
-            conv.append(nn.Conv2d(in_channels//2, in_channels//2, kernel_size=3, stride=1, padding=1))
+            conv.append(nn.Conv2d(int(in_channels/comp_factor), int(in_channels/comp_factor), kernel_size=3, stride=1, padding=1))
             conv.append(nn.ReLU())
         self.conv = nn.Sequential(*conv)
 
@@ -501,7 +501,7 @@ class AdaConRetinaNetClassificationHead(nn.Module):
                 torch.nn.init.normal_(layer.weight, std=0.01)
                 torch.nn.init.constant_(layer.bias, 0)
 
-        self.cls_logits = nn.Conv2d(in_channels//2, num_anchors * num_classes, kernel_size=3, stride=1, padding=1)
+        self.cls_logits = nn.Conv2d(int(in_channels/comp_factor), num_anchors * num_classes, kernel_size=3, stride=1, padding=1)
         torch.nn.init.normal_(self.cls_logits.weight, std=0.01)
         torch.nn.init.constant_(self.cls_logits.bias, -math.log((1 - prior_probability) / prior_probability))
 
@@ -574,18 +574,19 @@ class AdaConRetinaNetRegressionHead(nn.Module):
         'box_coder': det_utils.BoxCoder,
     }
 
-    def __init__(self, in_channels, num_anchors):
+    def __init__(self, in_channels, num_anchors, num_classes):
         super().__init__()
 
         conv = []
-        conv.append(nn.Conv2d(in_channels, in_channels//2, kernel_size=3, stride=1, padding=1))
+        comp_factor = 80/num_classes
+        conv.append(nn.Conv2d(in_channels, int(in_channels/comp_factor), kernel_size=3, stride=1, padding=1))
         conv.append(nn.ReLU())
         for _ in range(3):
-            conv.append(nn.Conv2d(in_channels//2, in_channels//2, kernel_size=3, stride=1, padding=1))
+            conv.append(nn.Conv2d(int(in_channels/comp_factor), int(in_channels/comp_factor), kernel_size=3, stride=1, padding=1))
             conv.append(nn.ReLU())
         self.conv = nn.Sequential(*conv)
 
-        self.bbox_reg = nn.Conv2d(in_channels//2, num_anchors * 4, kernel_size=3, stride=1, padding=1)
+        self.bbox_reg = nn.Conv2d(int(in_channels/comp_factor), num_anchors * 4, kernel_size=3, stride=1, padding=1)
         torch.nn.init.normal_(self.bbox_reg.weight, std=0.01)
         torch.nn.init.zeros_(self.bbox_reg.bias)
 
