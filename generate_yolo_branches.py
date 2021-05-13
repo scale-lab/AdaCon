@@ -59,10 +59,10 @@ if __name__ == "__main__":
 
     if not os.path.exists("output"):
             os.makedirs("output")
-    if not os.path.exists("output/branches"):
-        os.makedirs("output/branches")
+    if not os.path.exists("output/branches_comp_factor"):
+        os.makedirs("output/branches_comp_factor")
 
-    output_path = "output/branches/"
+    output_path = "output/branches_comp_factor/"
 
     file = open(template_path, 'r')
     lines = file.read().split('\n')
@@ -86,7 +86,7 @@ if __name__ == "__main__":
                     start_filter_size = int(value)
                     if math.ceil(Log2(start_filter_size)) == math.floor(Log2(start_filter_size)):
                         search_space_per_layer = []
-                        search_space_per_layer.append(start_filter_size//num_branches)
+                        search_space_per_layer.append(start_filter_size)
                         search_space.append(search_space_per_layer)
     
     print(search_space)
@@ -121,7 +121,8 @@ if __name__ == "__main__":
                 else:
                     if change_filt == True and key == "filters":
                         if idx not in [82, 94, 106]: # Number of filters at those layers depends on the number of classes
-                            module[key] = param[filt_idx]
+                            comp_factor = 80/len(clusters[bnch_num])
+                            module[key] = int(param[filt_idx]/comp_factor)
                             filt_idx += 1
                             change_filt = False
                         else:
