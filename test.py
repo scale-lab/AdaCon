@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from models import *
 from utils.datasets import *
 from utils.utils import *
-from profiler import Profiler
+# from profiler import Profiler
 import time
 
 def get_macs_and_params(backbone, branch_controller, branches, img_sz):
@@ -47,6 +47,7 @@ def test(cfg,
          clusters=None,
          class_to_cluster_list=None,
          cluster_idx=0,
+         profile=False,
          backbone=None):
 
     # Initialize/load model and set device
@@ -111,7 +112,7 @@ def test(cfg,
     loss = torch.zeros(3, device=device)
     jdict, stats, ap, ap_class = [], [], [], []
     latency = []
-    if opt.profile:
+    if profile:
         profiler = Profiler(platform='nano')
         profiler.start()
     
@@ -154,7 +155,7 @@ def test(cfg,
             t1 += torch_utils.time_synchronized() - t
             latency.append(time.time() - t)
         
-        if opt.profile:
+        if profile:
             if batch_i == 100:
                 break
             else:
@@ -227,7 +228,7 @@ def test(cfg,
     latency = latency[50:]
     print("Average Latency",sum(latency)/len(latency))
 
-    if opt.profile:
+    if profile:
         gpu_power, cpu_power, total_power = profiler.end()
         print("GPU power", gpu_power, "CPU power", cpu_power, "Total power", total_power)
         exit()
@@ -299,6 +300,7 @@ def test_branches(data,
          device=None,
          model=None,
          dataloader=None,
+         profile=False,
          multi_label=True):
 
     clusters = parse_clusters_config(opt.clusters)
@@ -313,7 +315,7 @@ def test_branches(data,
     for i, cfg in enumerate(opt.branches_cfg):
         branch = Darknet(cfg, imgsz)
         if opt.branches_weights:  # pytorch format
-            branch.load_state_dict(torch.load(opt.branches_weights[i], map_location=device)['model'])
+            branch.load_state_dict(torch.load(opt.branches_weights[i], map_location=device)['model'], strict=False)
         branch.to(device)
         count_parameters(branch)
         branch.eval()
@@ -337,7 +339,7 @@ def test_branches(data,
     iouv = iouv[0].view(1)  # comment for mAP@0.5:0.95
     niou = iouv.numel()
 
-    #get_macs_and_params(backbone, branch_controller, branches, imgsz)
+    # get_macs_and_params(backbone, branch_controller, branches, imgsz)
         
     # Dataloader
     if dataloader is None:
@@ -359,7 +361,7 @@ def test_branches(data,
     loss = torch.zeros(3, device=device)
     jdict, stats, ap, ap_class = [], [], [], []
     latency = []
-    if opt.profile:
+    if profile:
         profiler = Profiler(platform='nano')
         profiler.start()
         
@@ -418,7 +420,7 @@ def test_branches(data,
             t1 += torch_utils.time_synchronized() - t
             latency.append(time.time() - t)
 
-        if opt.profile:
+        if profile:
             if batch_i == 100:
                 break
             else:
@@ -491,7 +493,7 @@ def test_branches(data,
     latency = latency[50:]
     print("Average Latency",sum(latency)/len(latency))
 
-    if opt.profile:
+    if profile:
         gpu_power, cpu_power, total_power = profiler.end()
         print("GPU power", gpu_power, "CPU power", cpu_power, "Total power", total_power)
         exit()
@@ -609,6 +611,7 @@ if __name__ == '__main__':
              opt.save_json,
              opt.single_cls,
              opt.augment,
+             profile=opt.profile,
              device=device)
     else:
         test(opt.cfg,
@@ -621,4 +624,5 @@ if __name__ == '__main__':
              opt.save_json,
              opt.single_cls,
              opt.augment,
-             device=opt.device)
+             profile=opt.profile,
+             device=device)
