@@ -108,7 +108,7 @@ def test(cfg,
                 backbone.layer_outputs = []
                 t0 += torch_utils.time_synchronized() - t
 
-                targets = map_labels_to_cluster(targets, clusters, class_to_cluster_list, 0, device)
+                targets = map_labels_to_cluster(targets, clusters, class_to_cluster_list, cluster_idx, device)
                 if targets.shape[0] == 0:
                     continue
 
@@ -191,13 +191,6 @@ def test(cfg,
             # Append statistics (correct, conf, pcls, tcls)
             stats.append((correct.cpu(), pred[:, 4].cpu(), pred[:, 5].cpu(), tcls))
 
-        # Plot images
-        if batch_i < 1:
-            f = 'test_batch%g_gt.jpg' % batch_i  # filename
-            plot_images(imgs, targets, paths=paths, names=names, fname=f)  # ground truth
-            f = 'test_batch%g_pred.jpg' % batch_i
-            plot_images(imgs, output_to_target(output, width, height), paths=paths, names=names, fname=f)  # predictions
-
     # Compute statistics
     stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
     if len(stats):
@@ -279,7 +272,7 @@ def test_branches(data,
     for i, cfg in enumerate(opt.branches_cfg):
         branch = Darknet(cfg, imgsz)
         if opt.branches_weights:  # pytorch format
-            branch.load_state_dict(torch.load(opt.branches_weights[i], map_location=device)['model'])
+            branch.load_state_dict(torch.load(opt.branches_weights[i], map_location=device)['model'], strict=False)
         branch.to(device)
         count_parameters(branch)
         branch.eval()
@@ -439,12 +432,6 @@ def test_branches(data,
 
             # Append statistics (correct, conf, pcls, tcls)
             stats.append((correct.cpu(), pred[:, 4].cpu(), pred[:, 5].cpu(), tcls))
-        # Plot images
-        # if batch_i < 1:
-        #     f = 'test_batch%g_gt.jpg' % batch_i  # filename
-        #     plot_images(imgs, targets, paths=paths, names=names, fname=f)  # ground truth
-        #     f = 'test_batch%g_pred.jpg' % batch_i
-        #     plot_images(imgs, output_to_target(output, width, height), paths=paths, names=names, fname=f)  # predictions
 
     # Compute statistics
     stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
