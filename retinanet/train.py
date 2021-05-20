@@ -199,13 +199,13 @@ def main(args):
             model.multib = True
 
         model.to(device)
-        profiler = Profiler()
-        params = profiler.profile_params(model, len(clusters))
-        print(params)
-        input = torch.randn(1, 3, args.img_size, args.img_size)
-        input = input.to(device)
-        macs = profiler.profile_macs(model, input, len(clusters))
-        print(macs)
+        # profiler = Profiler()
+        # params = profiler.profile_params(model, len(clusters))
+        # print(params)
+        # input = torch.randn(1, 3, args.img_size, args.img_size)
+        # input = input.to(device)
+        # macs = profiler.profile_macs(model, input, len(clusters))
+        # print(macs)
 
     else:
         if args.model == "retinanet":

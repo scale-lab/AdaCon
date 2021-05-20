@@ -21,6 +21,7 @@ from engine import run_on_device, evaluate
 import presets
 import utils
 from prettytable import PrettyTable
+from profiler import Profiler
 
 def get_image_size_range(img_size):
     if img_size == 416:
@@ -186,9 +187,51 @@ def main(args):
 
     if args.profile:
         run_on_device(model, data_loader_test, device=device)
+        return
     else:
-        evaluate(model, data_loader_test, device=device)
-    print("Branches/Images", model.executed_branches, len(data_loader_test))
+        profiler = Profiler()
+        if args.adaptive:
+            params = profiler.profile_params(model, len(clusters))
+        else:
+            params = profiler.profile_params(model, 1)
+
+        input = torch.randn(1, 3, args.img_size, args.img_size)
+        input = input.to(device)
+        if args.adaptive:
+            macs = profiler.profile_macs(model, input, len(clusters))
+        else:
+            macs = profiler.profile_macs(model, input, 1)
+
+        accuracy_stats = evaluate(model, data_loader_test, device=device)
+
+        # Img Size, # Branches, Mode (single, multi, baseline), branches/inf, map(50:95), 
+        # map(50), map(75), map(s), map(m), map(l), Total Param, Backbone param, branch param,
+        # Dynamic param, Total Macs, Backbone Macs, branch Macs, Dynamic Macs
+        
+        results = []
+        if not args.adaptive:
+            mode = "baseline"
+            results.extend([args.img_size, 1, mode, 1])
+        else:
+            if args.single:
+                mode = "single"
+                branches_per_image = 1
+            elif args.multi:
+                mode = "multi" + str(args.bc_thres)
+                branches_per_image = model.executed_branches/len(data_loader_test)
+            else:
+                mode = "oracle"
+                branches_per_image = model.executed_branches/len(data_loader_test)
+
+            results.extend([args.img_size, len(clusters), mode, branches_per_image])
+        
+        results.extend(accuracy_stats[0][0:6])
+        results.extend(params)
+        results.append(params[1]+params[2])
+        results.extend(macs)
+        results.append(macs[1]+macs[2]*branches_per_image)
+        print("Results ", results)
+
     return
 
 if __name__ == "__main__":

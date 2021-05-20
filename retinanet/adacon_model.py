@@ -126,7 +126,7 @@ def adacon_retinanet_resnet50_fpn(clusters, active_branch=0, num_branches=4, pre
             if branches_weights:
                 print("Loading Branches")
                 for branch in range(num_branches):
-                    model.heads[branch].load_state_dict(torch.load(branches_weights[branch])['head'])
+                    model.heads[branch].load_state_dict(torch.load(branches_weights[branch])['head'], strict=False)
             if bc_weights:
                 print("Loading branch controller")
                 model.branch_controller.load_state_dict(torch.load(bc_weights)['branch_controller'])
@@ -615,7 +615,7 @@ class AdaConRetinaNetBranchController(nn.Module):
         conv.append(nn.ReLU())
         conv.append(nn.Conv2d(in_channels//2, in_channels//2, kernel_size=3, stride=2, padding=1))
         conv.append(nn.ReLU())
-        if num_classes < 4:
+        if num_classes < 5:
             conv.append(nn.Conv2d(in_channels//2, in_channels//4, kernel_size=3, stride=2, padding=1))
             conv.append(nn.ReLU())
             conv.append(nn.Conv2d(in_channels//4, in_channels//4, kernel_size=3, stride=2, padding=1))
@@ -628,7 +628,7 @@ class AdaConRetinaNetBranchController(nn.Module):
 
         self.conv = nn.Sequential(*conv)
 
-        if num_classes < 4:
+        if num_classes < 5:
             self.fc1 = nn.Linear(64, 32)
         else:
             self.fc1 = nn.Linear(128, 32)
