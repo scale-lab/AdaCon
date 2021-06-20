@@ -145,22 +145,27 @@ def detect_adaptive(save_img=False):
                 if dataset.mode == 'images':
                     cv2.imwrite(save_path, im0)
                 else:
-                    if vid_path != save_path:  # new video
-                        vid_path = save_path
-                        if isinstance(vid_writer, cv2.VideoWriter):
-                            vid_writer.release()  # release previous video writer
-                        # fps = vid_cap.get(cv2.CAP_PROP_FPS)
-                        w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                        h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        print(w, h)
-                        vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*opt.fourcc), correct_fps, (w, h))
-                    cv2.putText(im0, 
-                        str("FPS = {:.3f}".format(idx/(time.time() - t0))), 
-                        (250, 250), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 2, 
-                        (255, 255, 255), 
-                        4)
-                    vid_writer.write(im0)
+                    if idx == warmup_frames:
+                        t0 = time.time()
+                    elif idx == warmup_frames + 10:
+                        correct_fps = 10/(time.time() - t0)
+                    elif idx > warmup_frames + 10:
+                        if vid_path != save_path:  # new video
+                            vid_path = save_path
+                            if isinstance(vid_writer, cv2.VideoWriter):
+                                vid_writer.release()  # release previous video writer
+                            # fps = vid_cap.get(cv2.CAP_PROP_FPS)
+                            w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                            h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            print(w, h)
+                            vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*opt.fourcc), correct_fps, (w, h))
+                        cv2.putText(im0, 
+                            str("FPS = {:.3f}".format(idx/(time.time() - t0))), 
+                            (250, 250), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 2, 
+                            (255, 255, 255), 
+                            4)
+                        vid_writer.write(im0)
 
     if save_txt or save_img:
         print('Results saved to %s' % os.getcwd() + os.sep + out)
@@ -171,6 +176,7 @@ def detect_adaptive(save_img=False):
 
 
 def detect(save_img=False):
+    warmup_frames = 10
     imgsz = (320, 192) if ONNX_EXPORT else opt.img_size  # (320, 192) or (416, 256) or (608, 352) for (height, width)
     out, source, weights, half, view_img, save_txt = opt.output, opt.source, opt.weights, opt.half, opt.view_img, opt.save_txt
     webcam = source == '0' or source.startswith('rtsp') or source.startswith('http') or source.endswith('.txt')
@@ -312,9 +318,11 @@ def detect(save_img=False):
                 if dataset.mode == 'images':
                     cv2.imwrite(save_path, im0)
                 else:
-                    if idx == 5:
-                        correct_fps = 5/(time.time() - t0)
-                    elif idx > 5:
+                    if idx == warmup_frames:
+                        t0 = time.time()
+                    elif idx == warmup_frames + 10:
+                        correct_fps = 10/(time.time() - t0)
+                    elif idx > warmup_frames + 10:
                         if vid_path != save_path:  # new video
                             vid_path = save_path
                             if isinstance(vid_writer, cv2.VideoWriter):
