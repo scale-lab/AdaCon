@@ -11,8 +11,8 @@ def detect_adaptive(save_img=False):
 
     # Initialize
     device = torch_utils.select_device(device='cpu' if ONNX_EXPORT else opt.device)
-    if os.path.exists(out):
-        shutil.rmtree(out)  # delete output folder
+    # if os.path.exists(out):
+    #     shutil.rmtree(out)  # delete output folder
     os.makedirs(out)  # make new output folder
 
     clusters = parse_clusters_config(opt.clusters)
@@ -149,11 +149,17 @@ def detect_adaptive(save_img=False):
                         vid_path = save_path
                         if isinstance(vid_writer, cv2.VideoWriter):
                             vid_writer.release()  # release previous video writer
-
-                        fps = vid_cap.get(cv2.CAP_PROP_FPS)
+                        # fps = vid_cap.get(cv2.CAP_PROP_FPS)
                         w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
                         h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*opt.fourcc), fps, (w, h))
+                        print(w, h)
+                        vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*opt.fourcc), correct_fps, (w, h))
+                    cv2.putText(im0, 
+                        str("FPS = {:.3f}".format(idx/(time.time() - t0))), 
+                        (250, 250), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 2, 
+                        (255, 255, 255), 
+                        4)
                     vid_writer.write(im0)
 
     if save_txt or save_img:
@@ -171,8 +177,8 @@ def detect(save_img=False):
 
     # Initialize
     device = torch_utils.select_device(device='cpu' if ONNX_EXPORT else opt.device)
-    if os.path.exists(out):
-        shutil.rmtree(out)  # delete output folder
+    # if os.path.exists(out):
+    #     shutil.rmtree(out)  # delete output folder
     os.makedirs(out)  # make new output folder
 
     # Initialize model
@@ -236,7 +242,9 @@ def detect(save_img=False):
     t0 = time.time()
     img = torch.zeros((1, 3, imgsz, imgsz), device=device)  # init img
     _ = model(img.half() if half else img.float()) if device.type != 'cpu' else None  # run once
-    for path, img, im0s, vid_cap in dataset:
+    for idx, (path, img, im0s, vid_cap) in enumerate(dataset):
+        if idx == 50:
+            break
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
@@ -304,21 +312,29 @@ def detect(save_img=False):
                 if dataset.mode == 'images':
                     cv2.imwrite(save_path, im0)
                 else:
-                    if vid_path != save_path:  # new video
-                        vid_path = save_path
-                        if isinstance(vid_writer, cv2.VideoWriter):
-                            vid_writer.release()  # release previous video writer
+                    if idx == 5:
+                        correct_fps = 5/(time.time() - t0)
+                    elif idx > 5:
+                        if vid_path != save_path:  # new video
+                            vid_path = save_path
+                            if isinstance(vid_writer, cv2.VideoWriter):
+                                vid_writer.release()  # release previous video writer
+                            # fps = vid_cap.get(cv2.CAP_PROP_FPS)
+                            w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                            h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            print(w, h)
+                            vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*opt.fourcc), correct_fps, (w, h))
+                        cv2.putText(im0, 
+                            str("FPS = {:.3f}".format(idx/(time.time() - t0))), 
+                            (250, 250), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 2, 
+                            (255, 255, 255), 
+                            4)
+                        vid_writer.write(im0)
 
-                        fps = vid_cap.get(cv2.CAP_PROP_FPS)
-                        w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                        h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*opt.fourcc), fps, (w, h))
-                    vid_writer.write(im0)
 
     if save_txt or save_img:
         print('Results saved to %s' % os.getcwd() + os.sep + out)
-        if platform == 'darwin':  # MacOS
-            os.system('open ' + save_path)
 
     print('Done. (%.3fs)' % (time.time() - t0))
 
@@ -345,7 +361,7 @@ if __name__ == '__main__':
     parser.add_argument('--model', type=str, default='model.args', help='File for the model configurations')
     parser.add_argument('--single', action='store_true', help='test the single branch model')
     parser.add_argument('--multi', action='store_true', help='test the multi branch model')
-    parser.add_argument('--bc-thres', type=float, default=0.1, help='object confidence threshold')
+    parser.add_argument('--bc-thres', type=float, default=0.3, help='object confidence threshold')
 
     opt = parser.parse_args()
     opt.names = check_file(opt.names)  # check file
