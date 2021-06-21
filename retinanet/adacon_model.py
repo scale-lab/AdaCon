@@ -280,7 +280,11 @@ class AdaConRetinaNet(nn.Module):
             labels = []
             for l in detection['labels']:
                 new_label = self.cluster_to_class_map[self.active_branch][l.item()]
-                labels.append(torch.tensor(new_label, device=l.get_device()))
+                if l.get_device() < 0:
+                    device = "cpu"
+                else:
+                    device = l.get_device()
+                labels.append(torch.tensor(new_label, device=device))
             if len(labels) > 0:
                 detections[i]['labels'] = torch.stack(labels, dim=0)
         return detections
