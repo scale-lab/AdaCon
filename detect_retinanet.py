@@ -92,7 +92,7 @@ def main(args, save_img=False):
     model.to(device)
 
     imgsz = (320, 192) if ONNX_EXPORT else args.img_size  # (320, 192) or (416, 256) or (608, 352) for (height, width)
-    out, source, view_img, save_txt = "output", args.source, args.view_img, args.save_txt
+    out, source, view_img, save_txt = args.output, args.source, args.view_img, args.save_txt
     webcam = source == '0' or source.startswith('rtsp') or source.startswith('http') or source.endswith('.txt')
 
     # Initialize
@@ -294,6 +294,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--branches', nargs='+', help='trained branches for adaptive test', required=False)
     parser.add_argument('--branch_controller', type=str, help='trained branch controller for adaptive test', required=False)
+    parser.add_argument('--output', type=str, default='output', help='output folder')  # output folder
 
     args = parser.parse_args()
 
