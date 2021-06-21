@@ -70,6 +70,18 @@ class Profiler:
         total_power = total_power[50:]
         return sum(gpu_power)/len(gpu_power), sum(cpu_power)/len(cpu_power), sum(total_power)/len(total_power)
 
+    def get_inst_nano_power(self, lines):
+        lines = list(map(lambda l: l.decode("utf-8").strip(), lines))
+        line = lines[-1]
+        match = re.search('POM_5V_GPU (?P<gpu_power>[0-9]+)/[0-9]' ,line)
+        power = float(match.group('gpu_power'))
+        gpu_power = power
+        match = re.search('POM_5V_CPU (?P<cpu_power>[0-9]+)/[0-9]' ,line)
+        power = float(match.group('cpu_power'))
+        cpu_power = power
+
+        return cpu_power + gpu_power
+
     def profile_params(self, model, num_branches = 1):
         def count_parameters(model):
             total_params = 0
