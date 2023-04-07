@@ -5,7 +5,7 @@ Adaptive Context-Aware Object Detection for Resource-Constrained Embedded Device
 Convolutional Neural Networks achieve state-of-the-art accuracy in object detection tasks. However, they have large compute and memory footprints that challenge their deployment on resource-constrained edge devices. In AdaCon, we leverage the prior knowledge about the probabilities that different object categories can occur jointly to increase the efficiency of object detection models. In particular, our technique clusters the object categories based on their spatial co-occurrence probability. We use those clusters to design a hierarchical adaptive network. During runtime, a branch controller chooses which part(s) of the network to execute based on the spatial context of the input frame. 
 
 ## Paper
-Will be available soon.
+Available on [IEEEXplore](https://ieeexplore.ieee.org/abstract/document/9643479) and [Arxiv](https://arxiv.org/abs/2108.06850).
 
 ## How It Works
 AdaCon consists of two main steps:
