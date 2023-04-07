@@ -97,6 +97,6 @@ python train.py --model {MODEL.args}
 - `DATA.data` is the path of the desired data, use [data/coco2014.data](https://github.com/scale-lab/AdaCon/blob/master/data/coco2014.data) and [data/coco2017.data](https://github.com/scale-lab/AdaCon/blob/master/data/coco2017.data) or follow the same format for your custom dataset.
 - `adaptive` flag enables training the adaptive AdaCon model, otherwise the static model is trained.
 
-## Citation
+## Note
 
 This code is a fork from [Ultralytics](https://github.com/ultralytics/yolov3) implementation for [Yolov3](https://pjreddie.com/darknet/yolo/).
